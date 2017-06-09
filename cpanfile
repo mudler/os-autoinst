@@ -35,6 +35,7 @@ requires 'Mojo::URL';
 requires 'Mojo::UserAgent';
 requires 'Mojolicious::Lite';
 requires 'Net::DBus';
+requires 'Net::DNS::Nameserver';
 requires 'Net::SNMP';
 requires 'Net::SSH2';
 requires 'POSIX';

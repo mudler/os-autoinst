@@ -35,6 +35,8 @@ use OpenQA::Benchmark::Stopwatch;
 use MIME::Base64 'encode_base64';
 use List::Util 'min';
 use List::MoreUtils 'uniq';
+use backend::component::proxy;
+use backend::component::dnsserver;
 
 # should be a singleton - and only useful in backend process
 our $backend;
@@ -124,6 +126,10 @@ sub run {
     for my $console (values %{$testapi::distri->{consoles}}) {
         # tell the consoles who they need to talk to (in this thread)
         $console->backend($self);
+    }
+
+    if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS}) {
+        $self->start_hijack();
     }
 
     $self->run_capture_loop;
@@ -1108,6 +1114,112 @@ sub _child_process {
         return $pid;
     }
 
+}
+
+sub start_hijack {
+    my ($self) = @_;
+
+    # First start our fake DNS server.
+    $self->start_dns_server()   if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS});
+    $self->start_proxy_server() if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
+
+
+}
+
+
+sub start_proxy_server {
+    my ($self) = @_;
+
+    my $hosts = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_ENTRY};
+    my $policy = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} || "FORWARD";    # Can be REDIRECT, DROP, FORWARD
+
+    my $proxy_server_port    = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_PORT}    || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT;
+    my $proxy_server_address = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_ADDRESS} || '127.0.0.1';
+
+    # If host vm it's not in user mode, test developer needs to setup iptables rules to redirect the port on the guest machine
+
+    my @entry = split(/,/, $hosts);
+    # bmwqemu::diag ">> CONNECTIONS_HIJACK_PROXY_ENTRY supplied, but no real redirection address given. Format is: host:ip, host2:ip2 , ..." and return
+    #   unless (@entry > 0);
+
+    # Generate record table from configuration
+    my $redirect_table = {
+        map {
+            my ($host, $redirect) = split(/:/, $_);
+            $host => $redirect if ($host and $redirect)
+        } @entry
+    };
+
+    $self->_child_process(
+        sub {
+
+            $SIG{TERM} = sub { die "Caught a sigterm $!" };
+            $SIG{__DIE__} = undef;    # overwrite the default - just exit
+
+            my $proxy = backend::component::proxy->new(
+                redirect_table    => $redirect_table,
+                listening_port    => $proxy_server_port,
+                listening_address => $proxy_server_address,
+                policy            => $policy
+            );
+
+            $proxy->start;
+        });
+}
+
+sub start_dns_server {
+    my ($self) = @_;
+
+    my $dns_table = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_ENTRY};
+    my $dns_server_port = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT + 2;
+    $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} = $dns_server_port
+      if !$bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} ne $dns_server_port;
+    my $dns_server_address = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_ADDRESS} || '127.0.0.1';
+
+    # XXX: remind to me. see https://forums.gentoo.org/viewtopic-t-164165-start-0.html for iptables rules to redirect the port on the guest
+
+    my %record_table;
+
+    if ($dns_table) {
+        my @entry = split(/,/, $dns_table);
+        bmwqemu::diag ">> CONNECTIONS_HIJACK_DNS_ENTRY supplied, but no real redirection rules given. Format is: host:ip, host2:ip2 , ..." and return
+          unless (@entry > 0);
+
+
+        # Generate record table from configuration, translate them in DNS entries
+        %record_table = map {
+            my ($host, $ip) = split(/:/, $_);
+            $host => ["$host.     A   $ip"] if ($host and $ip)
+        } @entry;
+
+    }
+
+    if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} and $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} ne "DROP") {
+        $record_table{"*"} = bmwqemu::HIJACK_FAKE_IP;
+    }
+
+    bmwqemu::diag ">> DNS Server: Listening on ${dns_server_address}:${dns_server_port} " if keys %record_table;
+
+    foreach my $k (keys %record_table) {
+        bmwqemu::diag ">> DNS table entry: $k => @{${record_table{$k}}}" if ref($record_table{$k}) eq "ARRAY";
+    }
+
+    bmwqemu::diag ">> All DNS requests will be redirected to the host DNS server " if $record_table{"*"};
+
+
+    $self->_child_process(
+        sub {
+
+            $SIG{TERM} = sub { die "Caught a sigterm $!" };
+            $SIG{__DIE__} = undef;    # overwrite the default - just exit
+            my $dns_server = backend::component::dnsserver->new(
+                record_table       => \%record_table,
+                dns_server_port    => $dns_server_port,
+                dns_server_address => $dns_server_address
+            );
+            $dns_server->start;
+
+        });
 }
 
 1;
