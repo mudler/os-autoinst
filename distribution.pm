@@ -104,6 +104,75 @@ sub become_root {
     testapi::script_run("cd /tmp");
 }
 
+sub connection_hijack {
+    # XXX: unluckly we can't just put qemuhost or WORKER_HOSTNAME here, since we don't run the proxy server on port 80 (already used)
+    # we can't even use iptables, because on LIVECD environment it's not always available
+    # meant to be used like this, e.g. for LIVE environments:
+    #     send_key("ctrl-alt-f5");
+    # connection_hijack();
+    # sleep 10;
+    # select_console("installation")
+    # Note: e.g. connection_hijack should be run BEFORE upgrade_select/upgrade_select_opensuse (before good_buttons)
+    my ($self) = @_;
+    return unless testapi::get_var('CONNECTIONS_HIJACK_PROXY') || testapi::get_var('CONNECTIONS_HIJACK_DNS');
+    bmwqemu::fctwarn(
+"You have specified connection hijack, but you are not in qemu user mode. This means that you should setup guest tcp redirection manually to the host for http requests"
+    ) unless testapi::get_var('NICTYPE') eq "user";
+
+    if (testapi::get_var('CONNECTIONS_HIJACK_PROXY_ENTRY') && !testapi::get_var('CONNECTIONS_HIJACK_DNS')) {
+        my $hosts = testapi::get_var('CONNECTIONS_HIJACK_PROXY_ENTRY');
+
+        my @entry = split(/,/, $hosts);
+        return unless (@entry > 0);
+
+        # Generate record table from configuration
+        my @redirect_hosts = map {
+            my ($host, $redirect) = split(/:/, $_);
+            $host if ($host)
+        } @entry;
+
+        $self->set_host_entry(bmwqemu::HIJACK_FAKE_IP, $_) for @redirect_hosts;
+    }
+    else {
+        my $dns_port = testapi::get_var('CONNECTIONS_HIJACK_DNS_SERVER_PORT');
+        my $hostname = testapi::get_var('WORKER_HOSTNAME') || '10.0.2.2';
+        my $os       = "linux";
+        my $arch     = "amd64";
+
+        $arch = "386"   if (testapi::check_var('ARCH', 'i586'));
+        $arch = "arm64" if (testapi::check_var('ARCH', 'aarch64'));
+        $arch = "arm"   if (testapi::check_var('ARCH', 'armhfp') || testapi::check_var('ARCH', 'arm') || testapi::check_var('ARCH', 'armv7'));
+
+        $os = "windows" if (testapi::check_var('DISTRI', 'windows'));
+        $os = "darwin"  if (testapi::check_var('DISTRI', 'macosx'));
+        $os = "openbsd" if (testapi::check_var('DISTRI', 'openbsd'));
+        $os = "freebsd" if (testapi::check_var('DISTRI', 'freebsd'));
+
+
+# Unfortunately we need an agent that proxies UDP requests from the guest to the host machine, since UDP guestfwd it's not supported, nor iptables is present on LIVECDs
+        my $download_cmd
+          = "curl -s https://api.github.com/repos/mudler/go-udp-proxy/releases/latest | grep \"browser_download_url.*${os}-${arch}\" | cut -d : -f 2,3 | tr -d \\\" | wget -i - -O udp-proxy";
+
+        testapi::script_run("cd /tmp; $download_cmd");
+        testapi::script_run("cd /tmp; chmod +x udp-proxy; nohup ./udp-proxy -H $hostname -P $dns_port -p 53 &", 0);
+        $self->set_dns("127.0.0.1");
+    }
+}
+
+sub set_dns {
+    my ($self, @nameservers) = @_;
+    my $servers = join(" ", @nameservers);
+    testapi::script_run("sed -i -e 's|^NETCONFIG_DNS_STATIC_SERVERS=.*|NETCONFIG_DNS_STATIC_SERVERS=\"$servers\"|' /etc/sysconfig/network/config");
+    testapi::script_run("netconfig -f update");
+    testapi::script_run("cat /etc/resolv.conf");
+}
+
+sub set_host_entry {
+    my ($self, $ip, $domain) = @_;
+
+    testapi::script_run("echo '$ip $domain' >> /etc/hosts", 0);
+}
+
 =head2 script_run
 
 script_run($program, [$wait_seconds])
