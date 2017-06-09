@@ -39,6 +39,8 @@ our @EXPORT_OK = qw(diag);
 use backend::driver;
 require IPC::System::Simple;
 use autodie ':all';
+use constant HIJACK_FAKE_IP  => "10.0.2.254";
+use constant PROXY_BASE_PORT => "9002";
 
 sub mydie;
 
