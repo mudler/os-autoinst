@@ -60,18 +60,24 @@ sub _redirect {
     my $tx = Mojo::Transaction::HTTP->new;
     $tx->req($controller->tx->req->clone());    #this is better, we keep also the same request
 
+    $tx->req->url->path($r_urlpath);
+
     if ($self->policy eq "REDIRECT" && exists $host_entry->{$r_host}) {
-        $tx->req->url->parse("http://" . $host_entry->{$r_host});
+        my $url = Mojo::URL->new("http://".$host_entry->{$r_host});
+        $tx->req->url->parse("http://" . $url->host) if $url;
+        if($url and $url->path ne "/"){
+          $tx->req->url->path($url->path);
+        }
     }
     elsif ($self->policy eq "FORWARD") {
         $tx->req->url->parse("http://" . $r_host);
     }
 
-    $tx->req->url->path($r_urlpath);
+
     $tx->req->url->query($controller->tx->req->params);
     my $res = $self->ua->inactivity_timeout(20)->max_redirects(5)->connect_timeout(20)->request_timeout(10)->start($tx);
 
-    bmwqemu::diag "!! Proxy error: Something went wrong when processing the request: " . join(" ", @{$tx->res->{'error'}}) if ($tx->res->error);
+  #  bmwqemu::diag "!! Proxy error: Something went wrong when processing the request: " . join(" ", @{$tx->res->{'error'}}) if ($tx->res->error);
 
     $controller->tx->res($tx->res);
     $controller->rendered;
