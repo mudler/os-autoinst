@@ -4,7 +4,7 @@ use Net::DNS::Nameserver;
 use backend::component::dnsresolver;
 use bmwqemu;
 
-has [qw(record_table dns_server_port dns_server_address)];
+has [qw(record_table listening_port listening_address)];
 
 sub start {
 
@@ -13,8 +13,8 @@ sub start {
     my $sinkhole = backend::component::dnsresolver->new(%{$self->record_table});
 
     my $ns = Net::DNS::Nameserver->new(
-        LocalPort    => $self->dns_server_port,
-        LocalAddr    => [$self->dns_server_address],
+        LocalPort    => $self->listening_port,
+        LocalAddr    => [$self->listening_address],
         ReplyHandler => sub {
             my ($qname, $qclass, $qtype, $peerhost, $query, $conn) = @_;
             my ($rcode, @ans, @auth, @add);
