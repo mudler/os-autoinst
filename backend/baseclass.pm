@@ -1127,6 +1127,8 @@ sub start_hijack {
       if (($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY})
         || $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY} && $bmwqemu::vars{NICTYPE} ne "user");
 
+    $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} //= "FORWARD" if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
+
     # First start our fake DNS server.
     $self->start_dns_server()   if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS});
     $self->start_proxy_server() if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
@@ -1137,6 +1139,7 @@ sub start_hijack {
 
 sub start_proxy_server {
     my ($self) = @_;
+    my @entry;
 
     my $hosts = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_ENTRY};
     my $policy = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} || "FORWARD";    # Can be REDIRECT, DROP, FORWARD
@@ -1146,7 +1149,7 @@ sub start_proxy_server {
 
     # If host vm it's not in user mode, test developer needs to setup iptables rules to redirect the port on the guest machine
 
-    my @entry = split(/,/, $hosts);
+    @entry = split(/,/, $hosts) if $hosts;
     # bmwqemu::diag ">> CONNECTIONS_HIJACK_PROXY_ENTRY supplied, but no real redirection address given. Format is: host:ip, host2:ip2 , ..." and return
     #   unless (@entry > 0);
 
@@ -1161,7 +1164,8 @@ sub start_proxy_server {
     $policy = "REDIRECT" if (!$policy && $hosts);
 
     # Handle SUSEMIRROR and MIRROR_HTTP
-    if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR} && $bmwqemu::vars{MIRROR_HTTP} eq $bmwqemu::vars{SUSEMIRROR}) {
+    if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
+        bmwqemu::diag ">> Proxy: Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP";
         $redirect_table->{"download.opensuse.org"} = $bmwqemu::vars{MIRROR_HTTP};
         $policy = "REDIRECT";    # in this case we need the REDIRECT policy anyway.
     }
@@ -1192,7 +1196,7 @@ sub start_dns_server {
       if !$bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} ne $listening_port;
     my $listening_address = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_ADDRESS} || '127.0.0.1';
     my $hostname          = $bmwqemu::vars{WORKER_HOSTNAME}                       || '10.0.2.2';
-    my $proxy_policy      = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY};
+    my $proxy_policy      = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY}       || "FORWARD";
 
     # XXX: remind to me. see https://forums.gentoo.org/viewtopic-t-164165-start-0.html for iptables rules to redirect the port on the guest
 
