@@ -1203,7 +1203,8 @@ sub start_dns_server {
         # Generate record table from configuration, translate them in DNS entries
         %record_table = map {
             my ($host, $ip) = split(/:/, $_);
-            $host => ["$host.     A   $ip"] if ($host and $ip)
+            next unless $host and $ip;
+            $host => ($ip eq "FORWARD")? $ip : ["$host.     A   $ip"];
         } @entry;
 
     }

@@ -45,8 +45,7 @@ sub send {
                       and $rr_obj->type eq $rr_type
                       and $rr_obj->class eq $class;
                 }
-            }
-            elsif (my $sink = $records->{"*"}) {
+            } elsif (my $sink = $records->{"*"}) {
                 my $rr_obj = Net::DNS::RR->new("$domain.     A   $sink");
                 push(@answer_rrs, $rr_obj);
             }

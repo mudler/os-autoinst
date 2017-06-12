@@ -21,11 +21,17 @@ sub start {
 
             bmwqemu::diag(">> DNS Server: Intercepting request for $qname");
 
+            if ($self->record_table()->{$qname} and $self->record_table()->{$qname} eq "FORWARD") {
+              $rcode = "SERVFAIL";
+              bmwqemu::diag(">> Forward for $qname , returning $rcode");
+              return ($rcode, []);
+            }
+
             my $question = $sinkhole->query($qname, $qtype, $qclass);
+
             if (defined $question) {
                 @ans = $question->answer();
-                bmwqemu::diag(">> DNS Server: Answer " . $_->address) for @ans;
-
+                bmwqemu::diag(">> DNS Server: Answer " . $_->string) for @ans;
                 $rcode = "NOERROR";
             }
             else {
