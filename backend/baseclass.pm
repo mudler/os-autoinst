@@ -1222,11 +1222,12 @@ sub start_dns_server {
 
     }
 
-    # Handle SUSEMIRROR and MIRROR_HTTP
     for my $mirror_url ($bmwqemu::vars{MIRROR_HTTP}, $bmwqemu::vars{SUSEMIRROR}){
+      my $mirror=Mojo::URL->new($mirror_url);
         bmwqemu::diag ">> DNS: Use of mirror detected. Setting up DNS configuration automatically for : ".$mirror_url;
-        my $mirror=Mojo::URL->new($mirror_url);
-        $record_table{$mirror->host} = "FORWARD" if !exists $record_table{$mirror->host};
+        if($mirror->host()){
+          $record_table{$mirror->host()} = "FORWARD" if !exists $record_table{$mirror->host()};
+        }
     }
 
     if ($proxy_policy and $proxy_policy ne "DROP") {
@@ -1237,6 +1238,7 @@ sub start_dns_server {
 
     foreach my $k (keys %record_table) {
         bmwqemu::diag ">> DNS table entry: $k => @{${record_table{$k}}}" if ref($record_table{$k}) eq "ARRAY";
+        bmwqemu::diag ">> DNS Forward rule: $k => ${record_table{$k}}" if ref($record_table{$k}) ne "ARRAY";
     }
 
     bmwqemu::diag ">> All DNS requests that doesn't match a defined criteria will be redirected to the host: " . $record_table{"*"} if $record_table{"*"};
