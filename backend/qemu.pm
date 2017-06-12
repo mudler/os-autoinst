@@ -278,7 +278,8 @@ sub start_qemu {
     die "no kvm-img/qemu-img found\n" unless $qemuimg;
     die "no Qemu/KVM found\n"         unless $qemubin;
     die "MULTINET is not supported with NICTYPE==tap\n" if ($vars->{MULTINET} && $vars->{NICTYPE} eq "tap");
-    die "Hijack of connections its supported only with NICTYPE==user" if $vars->{NICTYPE} ne "user" && $vars->{CONNECTIONS_HIJACK};
+    bmwqemu::diag "Hijack of connections its supported automatically only with NICTYPE==user"
+      if $vars->{NICTYPE} && $vars->{NICTYPE} ne "user" && ($vars->{CONNECTIONS_HIJACK_DNS} || $vars->{CONNECTIONS_HIJACK_PROXY});
 
     $vars->{BIOS} //= $vars->{UEFI_BIOS} if ($vars->{UEFI});    # XXX: compat with old deployment
     $vars->{UEFI} = 1 if ($vars->{UEFI_PFLASH});
@@ -547,7 +548,6 @@ sub start_qemu {
               . bmwqemu::HIJACK_FAKE_IP
               . ':443-tcp:127.0.0.1:'
               . ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_PORT} || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT);
-            #$hijack ="guestfwd=::53-chardev:$chardev_id";
         }
 
         for (my $i = 0; $i < $num_networks; $i++) {
