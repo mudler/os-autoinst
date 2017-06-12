@@ -149,9 +149,7 @@ sub connection_hijack {
 
 
 # Unfortunately we need an agent that proxies UDP requests from the guest to the host machine, since UDP guestfwd it's not supported, nor iptables is present on LIVECDs
-        my $download_cmd = <<"EOT";
-curl -s https://api.github.com/repos/mudler/go-udp-proxy/releases/latest | grep "browser_download_url.*${os}-${arch}" | cut -d : -f 2,3 | tr -d \\\" | wget -i - -O udp-proxy
-EOT
+        my $download_cmd = "curl -s https://api.github.com/repos/mudler/go-udp-proxy/releases/latest | grep \"browser_download_url.*${os}-${arch}\" | cut -d : -f 2,3 | tr -d \\\" | wget -i - -O udp-proxy";
 
         testapi::script_run("cd /tmp; $download_cmd");
         testapi::script_run("cd /tmp; chmod +x udp-proxy; nohup ./udp-proxy -H $hostname -P $dns_port -p 53 &", 0);
