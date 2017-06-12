@@ -37,6 +37,7 @@ use List::Util 'min';
 use List::MoreUtils 'uniq';
 use backend::component::proxy;
 use backend::component::dnsserver;
+use Mojo::URL;
 use osutils qw(looks_like_ip);
 
 # should be a singleton - and only useful in backend process
@@ -1129,6 +1130,10 @@ sub start_hijack {
 
     $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} //= "FORWARD" if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
 
+    if($bmwqemu::vars{CONNECTIONS_HIJACK_DNS}){
+
+    }
+
     # First start our fake DNS server.
     $self->start_dns_server()   if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS});
     $self->start_proxy_server() if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
@@ -1163,7 +1168,7 @@ sub start_proxy_server {
 
     $policy = "REDIRECT" if (!$policy && $hosts);
 
-    # Handle SUSEMIRROR and MIRROR_HTTP
+    # Handle SUSEMIRROR and MIRROR_HTTP transparently
     if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
         bmwqemu::diag ">> Proxy: Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP";
         $redirect_table->{"download.opensuse.org"} = $bmwqemu::vars{MIRROR_HTTP};
@@ -1215,6 +1220,13 @@ sub start_dns_server {
             $host => ($ip eq "FORWARD" or $ip eq "DROP") ? $ip : (looks_like_ip($ip)) ? ["$host.     A   $ip"] : ["$host.     CNAME   $ip"];
         } @entry;
 
+    }
+
+    # Handle SUSEMIRROR and MIRROR_HTTP
+    for my $mirror_url ($bmwqemu::vars{MIRROR_HTTP}, $bmwqemu::vars{SUSEMIRROR}){
+        bmwqemu::diag ">> DNS: Use of mirror detected. Setting up DNS configuration automatically for : ".$mirror_url;
+        my $mirror=Mojo::URL->new($mirror_url);
+        $record_table{$mirror->host} = "FORWARD" if !exists $record_table{$mirror->host};
     }
 
     if ($proxy_policy and $proxy_policy ne "DROP") {

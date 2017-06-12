@@ -104,6 +104,14 @@ sub become_root {
 }
 
 sub connection_hijack {
+  # XXX: unluckly we can't just put qemuhost or WORKER_HOSTNAME here, since we don't run the proxy server on port 80 (already used)
+  # we can't even use iptables, because on LIVECD environment it's not always available
+  # meant to be used like this, e.g. for LIVE environments:
+  #     send_key("ctrl-alt-f5");
+  # connection_hijack();
+  # sleep 10;
+  # select_console("installation")
+  # Note: e.g. connection_hijack should be run BEFORE upgrade_select/upgrade_select_opensuse (before good_buttons)
     my ($self) = @_;
     return unless testapi::get_var('CONNECTIONS_HIJACK_PROXY') || testapi::get_var('CONNECTIONS_HIJACK_DNS');
     bmwqemu::fctwarn(
@@ -121,14 +129,6 @@ sub connection_hijack {
             my ($host, $redirect) = split(/:/, $_);
             $host if ($host)
         } @entry;
-
-        # XXX: unluckly we can't just put qemuhost or WORKER_HOSTNAME here, since we don't run the proxy server on port 80 (already used)
-        # we can't even use iptables, because on LIVECD environment it's not always available
-        # meant to be used like this, e.g. for LIVE environments:
-        #     send_key("ctrl-alt-f5");
-        # connection_hijack();
-        # sleep 10;
-        # select_console("installation")
 
         $self->set_host_entry(bmwqemu::HIJACK_FAKE_IP, $_) for @redirect_hosts;
     }
