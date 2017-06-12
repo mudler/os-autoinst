@@ -1119,6 +1119,13 @@ sub _child_process {
 sub start_hijack {
     my ($self) = @_;
 
+# When both component are wanted, the guest machine must redirect the connection thru the proxy, which is running in a not-standard port (not 80, and dynamically allocated)
+# This means that or the guest O.S. redirects the connections manually (e.g. via iptables rules), which is not supported by backend
+# or, if NICTYPE=user we set automatically the redirect thru guestfwd option.
+    $bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} = 1
+      if (($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY})
+        || $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY} && $bmwqemu::vars{NICTYPE} ne "user");
+
     # First start our fake DNS server.
     $self->start_dns_server()   if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS});
     $self->start_proxy_server() if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
@@ -1150,6 +1157,12 @@ sub start_proxy_server {
         } @entry
     };
 
+    # Handle SUSEMIRROR and MIRROR_HTTP
+
+    if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR} && $bmwqemu::vars{MIRROR_HTTP} eq $bmwqemu::vars{SUSEMIRROR}) {
+        $redirect_table->{"download.opensuse.org"} = $bmwqemu::vars{MIRROR_HTTP};
+    }
+
     $self->_child_process(
         sub {
 
@@ -1175,6 +1188,7 @@ sub start_dns_server {
     $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} = $dns_server_port
       if !$bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} ne $dns_server_port;
     my $dns_server_address = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_ADDRESS} || '127.0.0.1';
+    my $hostname = $bmwqemu::vars{WORKER_HOSTNAME} || '10.0.2.2';
 
     # XXX: remind to me. see https://forums.gentoo.org/viewtopic-t-164165-start-0.html for iptables rules to redirect the port on the guest
 
@@ -1195,7 +1209,7 @@ sub start_dns_server {
     }
 
     if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} and $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} ne "DROP") {
-        $record_table{"*"} = bmwqemu::HIJACK_FAKE_IP;
+        $record_table{"*"} = $bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname;
     }
 
     bmwqemu::diag ">> DNS Server: Listening on ${dns_server_address}:${dns_server_port} " if keys %record_table;
@@ -1204,7 +1218,7 @@ sub start_dns_server {
         bmwqemu::diag ">> DNS table entry: $k => @{${record_table{$k}}}" if ref($record_table{$k}) eq "ARRAY";
     }
 
-    bmwqemu::diag ">> All DNS requests will be redirected to the host DNS server " if $record_table{"*"};
+    bmwqemu::diag ">> All DNS requests that doesn't match a defined criteria will be redirected to the host: " . $record_table{"*"} if $record_table{"*"};
 
 
     $self->_child_process(

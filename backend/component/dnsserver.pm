@@ -23,7 +23,9 @@ sub start {
 
             my $question = $sinkhole->query($qname, $qtype, $qclass);
             if (defined $question) {
-                @ans   = $question->answer();
+                @ans = $question->answer();
+                bmwqemu::diag(">> DNS Server: Answer " . $_->address) for @ans;
+
                 $rcode = "NOERROR";
             }
             else {

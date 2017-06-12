@@ -528,9 +528,9 @@ sub start_qemu {
         #  qemu-kvm [...] -chardev udp,id=udp_fwd,host=mercury.example.com,port=7777
 
         my $hijack = '';
-        my $nictype_user_options = $vars->{NICTYPE_USER_OPTIONS} ? $vars->{NICTYPE_USER_OPTIONS} : '';
+        my $nictype_user_options = $vars->{NICTYPE_USER_OPTIONS} || '';
 
-        if ($vars->{CONNECTIONS_HIJACK_PROXY} || $vars->{CONNECTIONS_HIJACK_DNS}) {
+        if (($vars->{CONNECTIONS_HIJACK_PROXY} || $vars->{CONNECTIONS_HIJACK_DNS}) && $vars->{CONNECTIONS_HIJACK_FAKEIP}) {
             #my $chardev_id = "fwd";
             #gen_params @params, 'chardev', [qv "udp id=m8 host=127.0.0.1 port=5353"];
             #gen_params @params, 'chardev', [qv "udp id=$chardev_id host=127.0.0.1 port=53534"];
@@ -541,6 +541,11 @@ sub start_qemu {
               = 'guestfwd=tcp:'
               . bmwqemu::HIJACK_FAKE_IP
               . ':80-tcp:127.0.0.1:'
+              . ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_PORT} || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT);
+            $hijack
+              .= ',guestfwd=tcp:'
+              . bmwqemu::HIJACK_FAKE_IP
+              . ':443-tcp:127.0.0.1:'
               . ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_PORT} || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT);
             #$hijack ="guestfwd=::53-chardev:$chardev_id";
         }

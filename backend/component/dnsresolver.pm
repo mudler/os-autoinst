@@ -37,11 +37,7 @@ sub send {
 
         if (defined(my $records = $self->{records})) {
 
-            if (my $sink = $records->{"*"}) {
-                my $rr_obj = Net::DNS::RR->new("$domain.     A   $sink");
-                push(@answer_rrs, $rr_obj);
-            }
-            elsif (ref(my $rrs_for_domain = $records->{$domain}) eq 'ARRAY') {
+            if (ref(my $rrs_for_domain = $records->{$domain}) eq 'ARRAY') {
                 foreach my $rr (@$rrs_for_domain) {
                     my $rr_obj = Net::DNS::RR->new($rr);
                     push(@answer_rrs, $rr_obj)
@@ -49,6 +45,10 @@ sub send {
                       and $rr_obj->type eq $rr_type
                       and $rr_obj->class eq $class;
                 }
+            }
+            elsif (my $sink = $records->{"*"}) {
+                my $rr_obj = Net::DNS::RR->new("$domain.     A   $sink");
+                push(@answer_rrs, $rr_obj);
             }
             else {
                 #Failure packet, mostly always.
