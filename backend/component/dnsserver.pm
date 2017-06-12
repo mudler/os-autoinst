@@ -22,9 +22,14 @@ sub start {
             bmwqemu::diag(">> DNS Server: Intercepting request for $qname");
 
             if ($self->record_table()->{$qname} and $self->record_table()->{$qname} eq "FORWARD") {
-              $rcode = "SERVFAIL";
-              bmwqemu::diag(">> Forward for $qname , returning $rcode");
-              return ($rcode, []);
+                $rcode = "SERVFAIL";
+                bmwqemu::diag(">> Forward for $qname , returning $rcode");
+                return ($rcode, []);
+            }
+            elsif ($self->record_table()->{$qname} and $self->record_table()->{$qname} eq "DROP") {
+                $rcode = "NXDOMAIN";
+                bmwqemu::diag(">> Drop for $qname , returning $rcode");
+                return ($rcode, []);
             }
 
             my $question = $sinkhole->query($qname, $qtype, $qclass);

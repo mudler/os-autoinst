@@ -37,6 +37,7 @@ use List::Util 'min';
 use List::MoreUtils 'uniq';
 use backend::component::proxy;
 use backend::component::dnsserver;
+use osutils qw(looks_like_ip);
 
 # should be a singleton - and only useful in backend process
 our $backend;
@@ -1157,7 +1158,7 @@ sub start_proxy_server {
         } @entry
     };
 
-    $policy = "REDIRECT" if(!$policy && $hosts);
+    $policy = "REDIRECT" if (!$policy && $hosts);
 
     # Handle SUSEMIRROR and MIRROR_HTTP
     if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR} && $bmwqemu::vars{MIRROR_HTTP} eq $bmwqemu::vars{SUSEMIRROR}) {
@@ -1185,12 +1186,12 @@ sub start_dns_server {
     my ($self) = @_;
 
     my $dns_table = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_ENTRY};
-    my $dns_server_port = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT + 2;
-    $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} = $dns_server_port
-      if !$bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} ne $dns_server_port;
-    my $dns_server_address = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_ADDRESS} || '127.0.0.1';
-    my $hostname = $bmwqemu::vars{WORKER_HOSTNAME} || '10.0.2.2';
-    my $proxy_policy = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY};
+    my $listening_port = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT + 2;
+    $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} = $listening_port
+      if !$bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} ne $listening_port;
+    my $listening_address = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_ADDRESS} || '127.0.0.1';
+    my $hostname          = $bmwqemu::vars{WORKER_HOSTNAME}                       || '10.0.2.2';
+    my $proxy_policy      = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY};
 
     # XXX: remind to me. see https://forums.gentoo.org/viewtopic-t-164165-start-0.html for iptables rules to redirect the port on the guest
 
@@ -1206,7 +1207,7 @@ sub start_dns_server {
         %record_table = map {
             my ($host, $ip) = split(/:/, $_);
             next unless $host and $ip;
-            $host => ($ip eq "FORWARD")? $ip : ["$host.     A   $ip"];
+            $host => ($ip eq "FORWARD" or $ip eq "DROP") ? $ip : (looks_like_ip($ip)) ? ["$host.     A   $ip"] : ["$host.     CNAME   $ip"];
         } @entry;
 
     }
@@ -1230,7 +1231,7 @@ sub start_dns_server {
             $SIG{TERM} = sub { die "Caught a sigterm $!" };
             $SIG{__DIE__} = undef;    # overwrite the default - just exit
             my $dns_server = backend::component::dnsserver->new(
-                record_table       => \%record_table,
+                record_table      => \%record_table,
                 listening_port    => $listening_port,
                 listening_address => $listening_address
             );
