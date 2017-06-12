@@ -1163,6 +1163,7 @@ sub start_proxy_server {
     # Handle SUSEMIRROR and MIRROR_HTTP
     if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR} && $bmwqemu::vars{MIRROR_HTTP} eq $bmwqemu::vars{SUSEMIRROR}) {
         $redirect_table->{"download.opensuse.org"} = $bmwqemu::vars{MIRROR_HTTP};
+        $policy = "REDIRECT";    # in this case we need the REDIRECT policy anyway.
     }
 
     $self->_child_process(
