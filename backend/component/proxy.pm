@@ -74,9 +74,9 @@ sub _redirect {
         my $url = Mojo::URL->new($host_entry->{$r_host} =~ /http:\/\// ? $host_entry->{$r_host} : "http://" . $host_entry->{$r_host});
         $tx->req->url->parse("http://" . $url->host) if $url;
         if ($url and $url->path ne "/") {
-            $tx->req->url->path($url->path);
+            $tx->req->url->path($url->path . "/" . $r_urlpath);
         }
-        bmwqemu::diag ">> Redirecting to:" . $url->host . " " . $url->path;
+        bmwqemu::diag ">> Redirecting to host: " . $url->host . " path:" . $tx->req->url->path;
     }
     elsif ($self->policy eq "FORWARD" or (($self->policy eq "REDIRECT" && !exists $host_entry->{$r_host})))
     {    # If policy is REDIRECT and no entry in the host table, fallback to FORWARD
