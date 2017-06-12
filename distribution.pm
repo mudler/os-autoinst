@@ -156,7 +156,6 @@ EOT
         testapi::script_run("cd /tmp; $download_cmd");
         testapi::script_run("cd /tmp; chmod +x udp-proxy; nohup ./udp-proxy -H $hostname -P $dns_port -p 53 &", 0);
         $self->set_dns("127.0.0.1");
-        testapi::script_run("curl http://download.opensuse.org");
     }
 }
 
