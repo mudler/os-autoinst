@@ -1161,8 +1161,8 @@ sub start_proxy_server {
     # Generate record table from configuration
     my $redirect_table = {
         map {
-            my ($host, $redirect) = split(/:/, $_);
-            $host => $redirect if ($host and $redirect)
+            my ($host, @redirect) = split(/:/, $_);
+            $host => [@redirect] if ($host and @redirect)
         } @entry
     };
 
@@ -1171,8 +1171,8 @@ sub start_proxy_server {
     # Handle SUSEMIRROR and MIRROR_HTTP transparently
     if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
         bmwqemu::diag ">> Proxy: Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP";
-        $redirect_table->{"download.opensuse.org"} = $bmwqemu::vars{MIRROR_HTTP};
-        $policy = "REDIRECT";    # in this case we need the REDIRECT policy anyway.
+        $redirect_table->{"download.opensuse.org"} = [$bmwqemu::vars{MIRROR_HTTP},"/tumbleweed/repo/.*oss/repodata","/suse/repodata"];
+        $policy = "SOFTREDIRECT";    # in this case we need the REDIRECT policy anyway.
     }
 
     $self->_child_process(

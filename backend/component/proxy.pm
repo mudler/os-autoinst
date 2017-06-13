@@ -15,13 +15,13 @@ sub startup {
     $self->log->level("error");
     my $r = $self->routes;
 
-    die "Invalid policy supplied for Proxy" unless ($self->policy eq "FORWARD" or $self->policy eq "DROP" or $self->policy eq "REDIRECT");
-    bmwqemu::diag ">> Proxy server started at " . $self->listening_address . ":" . $self->listening_port;
-    bmwqemu::diag ">> Proxy policy is " . $self->policy;
-    bmwqemu::diag ">> Proxy redirect table: " if keys %{$self->redirect_table};
+    die "Invalid policy supplied for Proxy" unless ($self->policy eq "FORWARD" or $self->policy eq "DROP" or $self->policy eq "REDIRECT" or $self->policy eq "SOFTREDIRECT");
+    $self->_diag("Server started at " . $self->listening_address . ":" . $self->listening_port);
+    $self->_diag("Default policy is " . $self->policy);
+    $self->_diag("Redirect table: ") if keys %{$self->redirect_table};
 
     foreach my $k (keys %{$self->redirect_table}) {
-        bmwqemu::diag "\t $k => " . $self->redirect_table->{$k};
+        $self->_diag("\t $k => " . join(" ",@{$self->redirect_table->{$k}}));
     }
 
     $r->any('*' => sub { $self->_handle_request(shift) });
@@ -31,12 +31,15 @@ sub startup {
 
 sub _handle_request {
     my ($self, $controller) = @_;
-    my $redirect_table = $self->redirect_table;
     $controller->render_later;
-
-    my $requested_host = $controller->tx->req->url->base->host();
-
     $self->_redirect($controller);
+}
+
+sub _diag {
+  my ($self,@messages) = @_;
+
+  bmwqemu::diag ">> ".__PACKAGE__." @messages";
+
 }
 
 sub _redirect {
@@ -52,49 +55,72 @@ sub _redirect {
     my $client_address = $controller->tx->remote_address;
 
     if (!$r_host) {
-        bmwqemu::diag ">> Proxy Request could not be processed - cannot retrieve requested host";
+        $self->_diag("Request from:  could not be processed - cannot retrieve requested host");
         $controller->reply->not_found;
         return;
     }
 
-    bmwqemu::diag ">> Proxy Request from:" . $client_address . " " . $r_method . " " . $r_host;
-
+    $self->_diag("Request from: " . $client_address . " method: " . $r_method . " to host:" . $r_host);
+    $self->_diag("Requested url is: ".$controller->tx->req->url->to_string);
     if ($self->policy eq "DROP") {
-        bmwqemu::diag ">> Proxy Request policy : DROPPING";
+        $self->_diag("Answering with 404");
         $controller->reply->not_found;
         return;
     }
+
     #Start forging - FORWARD by default
-    my $tx = Mojo::Transaction::HTTP->new;
+    my $tx = Mojo::Transaction::HTTP->new();
     $tx->req($controller->tx->req->clone());    #this is better, we keep also the same request
-
     $tx->req->url->path($r_urlpath);
+    $tx->req->method($r_method);
 
-    if ($self->policy eq "REDIRECT" && exists $host_entry->{$r_host}) {
-        my $url = Mojo::URL->new($host_entry->{$r_host} =~ /http:\/\// ? $host_entry->{$r_host} : "http://" . $host_entry->{$r_host});
-        $tx->req->url->parse("http://" . $url->host) if $url;
+    if($self->policy eq "SOFTREDIRECT") {
+      my $redirect_to = @{$host_entry->{$r_host}}[0];
+      my $redirect_replace = @{$host_entry->{$r_host}}[1];
+      my $redirect_replace_with = @{$host_entry->{$r_host}}[2];
+      $r_urlpath =~ s/$redirect_replace/$redirect_replace_with/g;
+      my $url = Mojo::URL->new($redirect_to =~ /http:\/\// ? $redirect_to : "http://" . $redirect_to);
+
+      if($url) {
+        $tx->req->url->parse("http://" . $url->host);
+        $tx->req->url->base->host($url->host);
+        $tx->req->content->headers->host($url->host);
+      }
+
+      if ($url and $url->path ne "/") {
+          $tx->req->url->path($url->path . $r_urlpath);
+      }
+    $self->_diag("Redirecting to: " . $tx->req->url->to_string);
+    }
+    elsif ($self->policy eq "REDIRECT" && exists $host_entry->{$r_host}) {
+      my $redirect_to = @{$host_entry->{$r_host}}[0];
+        my $url = Mojo::URL->new($redirect_to =~ /http:\/\// ? $redirect_to : "http://" . $redirect_to);
+        if($url) {
+          $tx->req->url->parse("http://" . $url->host);
+          $tx->req->url->base->host($url->host);
+          $tx->req->content->headers->host($url->host);
+        }
         if ($url and $url->path ne "/") {
             $tx->req->url->path($url->path . $r_urlpath);
         }
-        bmwqemu::diag ">> Redirecting to host: " . $url->host . " path:" . $tx->req->url->path;
+        $self->_diag("Redirecting to: " . $tx->req->url->to_string);
     }
     elsif ($self->policy eq "FORWARD" or (($self->policy eq "REDIRECT" && !exists $host_entry->{$r_host})))
     {    # If policy is REDIRECT and no entry in the host table, fallback to FORWARD
         $tx->req->url->parse("http://" . $r_host);
-        bmwqemu::diag ">> No redirect rules for the host, forwarding to: " . $r_host;
+        $self->_diag("No redirect rules for the host, forwarding to: " . $r_host);
     }
 
     $tx->req->url->query($controller->tx->req->params);
     my $req_tx = $self->ua->inactivity_timeout(20)->max_redirects(5)->connect_timeout(20)->request_timeout(10)->start($tx);
-    $controller->tx->res($req_tx->res);
 
     unless($req_tx->result->is_success){
       $controller->reply->not_found;
-      $controller->rendered;
-      bmwqemu::diag "!! Proxy error: Something went wrong when processing the request, return code from request is: " .$req_tx->result->code;
+      $self->_diag("!! error: Something went wrong when processing the request, return code from request is: " .$req_tx->result->code);
       return;
     }
 
+    $controller->tx->res($req_tx->res);
     $controller->rendered;
 }
 
