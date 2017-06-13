@@ -74,7 +74,7 @@ sub _redirect {
         my $url = Mojo::URL->new($host_entry->{$r_host} =~ /http:\/\// ? $host_entry->{$r_host} : "http://" . $host_entry->{$r_host});
         $tx->req->url->parse("http://" . $url->host) if $url;
         if ($url and $url->path ne "/") {
-            $tx->req->url->path($url->path . "/" . $r_urlpath);
+            $tx->req->url->path($url->path . $r_urlpath);
         }
         bmwqemu::diag ">> Redirecting to host: " . $url->host . " path:" . $tx->req->url->path;
     }
@@ -85,11 +85,16 @@ sub _redirect {
     }
 
     $tx->req->url->query($controller->tx->req->params);
-    my $res = $self->ua->inactivity_timeout(20)->max_redirects(5)->connect_timeout(20)->request_timeout(10)->start($tx);
+    my $req_tx = $self->ua->inactivity_timeout(20)->max_redirects(5)->connect_timeout(20)->request_timeout(10)->start($tx);
+    $controller->tx->res($req_tx->res);
 
-    #  bmwqemu::diag "!! Proxy error: Something went wrong when processing the request: " . join(" ", @{$tx->res->{'error'}}) if ($tx->res->error);
+    unless($req_tx->result->is_success){
+      $controller->reply->not_found;
+      $controller->rendered;
+      bmwqemu::diag "!! Proxy error: Something went wrong when processing the request, return code from request is: " .$req_tx->result->code;
+      return;
+    }
 
-    $controller->tx->res($tx->res);
     $controller->rendered;
 }
 
