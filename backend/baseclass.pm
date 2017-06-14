@@ -1130,7 +1130,7 @@ sub start_hijack {
 
     $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} //= "FORWARD" if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
 
-    if($bmwqemu::vars{CONNECTIONS_HIJACK_DNS}){
+    if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS}) {
 
     }
 
@@ -1172,7 +1172,8 @@ sub start_proxy_server {
     if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
         bmwqemu::diag ">> Proxy: Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP";
         # XXX: Todo, add more-than-one rewrite rule with regex. Aside from repodata, we need to handle now /tumbleweed/repo/.*oss/ -> "" (remove it)
-        $redirect_table->{"download.opensuse.org"} = [$bmwqemu::vars{MIRROR_HTTP},"/tumbleweed/repo/.*oss/repodata","/suse/repodata", "/tumbleweed/repo/.*oss/", "/"];
+        $redirect_table->{"download.opensuse.org"}
+          = [$bmwqemu::vars{MIRROR_HTTP}, "/tumbleweed/repo/.*oss/repodata", "/suse/repodata", "/tumbleweed/repo/.*oss/", "/"];
         $policy = "SOFTREDIRECT";    # in this case we need the REDIRECT policy anyway.
     }
 
@@ -1223,11 +1224,11 @@ sub start_dns_server {
 
     }
 
-    for my $mirror_url ($bmwqemu::vars{MIRROR_HTTP}, $bmwqemu::vars{SUSEMIRROR}){
-      my $mirror=Mojo::URL->new($mirror_url);
-        bmwqemu::diag ">> DNS: Use of mirror detected. Setting up DNS configuration automatically for : ".$mirror_url;
-        if($mirror->host()){
-          $record_table{$mirror->host()} = "FORWARD" if !exists $record_table{$mirror->host()};
+    for my $mirror_url ($bmwqemu::vars{MIRROR_HTTP}, $bmwqemu::vars{SUSEMIRROR}) {
+        my $mirror = Mojo::URL->new($mirror_url);
+        bmwqemu::diag ">> DNS: Use of mirror detected. Setting up DNS configuration automatically for : " . $mirror_url;
+        if ($mirror->host()) {
+            $record_table{$mirror->host()} = "FORWARD" if !exists $record_table{$mirror->host()};
         }
     }
 
@@ -1239,7 +1240,7 @@ sub start_dns_server {
 
     foreach my $k (keys %record_table) {
         bmwqemu::diag ">> DNS table entry: $k => @{${record_table{$k}}}" if ref($record_table{$k}) eq "ARRAY";
-        bmwqemu::diag ">> DNS Forward rule: $k => ${record_table{$k}}" if ref($record_table{$k}) ne "ARRAY";
+        bmwqemu::diag ">> DNS Forward rule: $k => ${record_table{$k}}"   if ref($record_table{$k}) ne "ARRAY";
     }
 
     bmwqemu::diag ">> All DNS requests that doesn't match a defined criteria will be redirected to the host: " . $record_table{"*"} if $record_table{"*"};

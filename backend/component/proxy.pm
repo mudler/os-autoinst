@@ -15,13 +15,14 @@ sub startup {
     $self->log->level("error");
     my $r = $self->routes;
 
-    die "Invalid policy supplied for Proxy" unless ($self->policy eq "FORWARD" or $self->policy eq "DROP" or $self->policy eq "REDIRECT" or $self->policy eq "SOFTREDIRECT");
+    die "Invalid policy supplied for Proxy"
+      unless ($self->policy eq "FORWARD" or $self->policy eq "DROP" or $self->policy eq "REDIRECT" or $self->policy eq "SOFTREDIRECT");
     $self->_diag("Server started at " . $self->listening_address . ":" . $self->listening_port);
     $self->_diag("Default policy is " . $self->policy);
     $self->_diag("Redirect table: ") if keys %{$self->redirect_table};
 
     foreach my $k (keys %{$self->redirect_table}) {
-        $self->_diag("\t $k => " . join(", ",@{$self->redirect_table->{$k}}));
+        $self->_diag("\t $k => " . join(", ", @{$self->redirect_table->{$k}}));
     }
 
     $r->any('*' => sub { $self->_handle_request(shift) });
@@ -36,9 +37,9 @@ sub _handle_request {
 }
 
 sub _diag {
-  my ($self,@messages) = @_;
+    my ($self, @messages) = @_;
 
-  bmwqemu::diag ">> ".__PACKAGE__." @messages";
+    bmwqemu::diag ">> " . __PACKAGE__ . " @messages";
 
 }
 
@@ -61,7 +62,7 @@ sub _redirect {
     }
 
     $self->_diag("Request from: " . $client_address . " method: " . $r_method . " to host:" . $r_host);
-    $self->_diag("Requested url is: ".$controller->tx->req->url->to_string);
+    $self->_diag("Requested url is: " . $controller->tx->req->url->to_string);
     if ($self->policy eq "DROP") {
         $self->_diag("Answering with 404");
         $controller->reply->not_found;
@@ -74,37 +75,38 @@ sub _redirect {
     $tx->req->url->path($r_urlpath);
     $tx->req->method($r_method);
 
-    if($self->policy eq "SOFTREDIRECT") {
+    if ($self->policy eq "SOFTREDIRECT") {
 
-      my @rules = @{$host_entry->{$r_host}};
-      my $redirect_to = shift @rules;
-      do {$self->diag("Odd number of rewrite rules given. Expecting even") } and return unless scalar(@rules)  % 2 == 0;
-      for (my $i = 0;$i<=$#rules;$i+=2){
-         my $redirect_replace  =$rules[$i];
-          my $redirect_replace_with = $rules[$i+1];
-        $r_urlpath =~ s/$redirect_replace/$redirect_replace_with/g;
-      }
+        my @rules       = @{$host_entry->{$r_host}};
+        my $redirect_to = shift @rules;
+        do { $self->diag("Odd number of rewrite rules given. Expecting even") }
+          and return unless scalar(@rules) % 2 == 0;
+        for (my $i = 0; $i <= $#rules; $i += 2) {
+            my $redirect_replace      = $rules[$i];
+            my $redirect_replace_with = $rules[$i + 1];
+            $r_urlpath =~ s/$redirect_replace/$redirect_replace_with/g;
+        }
 
-      my $url = Mojo::URL->new($redirect_to =~ /http:\/\// ? $redirect_to : "http://" . $redirect_to);
+        my $url = Mojo::URL->new($redirect_to =~ /http:\/\// ? $redirect_to : "http://" . $redirect_to);
 
-      if($url) {
-        $tx->req->url->parse("http://" . $url->host);
-        $tx->req->url->base->host($url->host);
-        $tx->req->content->headers->host($url->host);
-      }
+        if ($url) {
+            $tx->req->url->parse("http://" . $url->host);
+            $tx->req->url->base->host($url->host);
+            $tx->req->content->headers->host($url->host);
+        }
 
-      if ($url and $url->path ne "/") {
-          $tx->req->url->path($url->path . $r_urlpath);
-      }
-    $self->_diag("Redirecting to: " . $tx->req->url->to_string);
+        if ($url and $url->path ne "/") {
+            $tx->req->url->path($url->path . $r_urlpath);
+        }
+        $self->_diag("Redirecting to: " . $tx->req->url->to_string);
     }
     elsif ($self->policy eq "REDIRECT" && exists $host_entry->{$r_host}) {
-      my $redirect_to = @{$host_entry->{$r_host}}[0];
+        my $redirect_to = @{$host_entry->{$r_host}}[0];
         my $url = Mojo::URL->new($redirect_to =~ /http:\/\// ? $redirect_to : "http://" . $redirect_to);
-        if($url) {
-          $tx->req->url->parse("http://" . $url->host);
-          $tx->req->url->base->host($url->host);
-          $tx->req->content->headers->host($url->host);
+        if ($url) {
+            $tx->req->url->parse("http://" . $url->host);
+            $tx->req->url->base->host($url->host);
+            $tx->req->content->headers->host($url->host);
         }
         if ($url and $url->path ne "/") {
             $tx->req->url->path($url->path . $r_urlpath);
@@ -120,10 +122,10 @@ sub _redirect {
     $tx->req->url->query($controller->tx->req->params);
     my $req_tx = $self->ua->inactivity_timeout(20)->max_redirects(5)->connect_timeout(20)->request_timeout(10)->start($tx);
 
-    unless($req_tx->result->is_success){
-      $controller->reply->not_found;
-      $self->_diag("!! error: Something went wrong when processing the request, return code from request is: " .$req_tx->result->code);
-      return;
+    unless ($req_tx->result->is_success) {
+        $controller->reply->not_found;
+        $self->_diag("!! error: Something went wrong when processing the request, return code from request is: " . $req_tx->result->code);
+        return;
     }
 
     $controller->tx->res($req_tx->res);
