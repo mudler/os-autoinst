@@ -1171,7 +1171,8 @@ sub start_proxy_server {
     # Handle SUSEMIRROR and MIRROR_HTTP transparently
     if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
         bmwqemu::diag ">> Proxy: Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP";
-        $redirect_table->{"download.opensuse.org"} = [$bmwqemu::vars{MIRROR_HTTP},"/tumbleweed/repo/.*oss/repodata","/suse/repodata"];
+        # XXX: Todo, add more-than-one rewrite rule with regex. Aside from repodata, we need to handle now /tumbleweed/repo/.*oss/ -> "" (remove it)
+        $redirect_table->{"download.opensuse.org"} = [$bmwqemu::vars{MIRROR_HTTP},"/tumbleweed/repo/.*oss/repodata","/suse/repodata", "/tumbleweed/repo/.*oss/", "/"];
         $policy = "SOFTREDIRECT";    # in this case we need the REDIRECT policy anyway.
     }
 

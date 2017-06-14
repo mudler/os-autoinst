@@ -21,7 +21,7 @@ sub startup {
     $self->_diag("Redirect table: ") if keys %{$self->redirect_table};
 
     foreach my $k (keys %{$self->redirect_table}) {
-        $self->_diag("\t $k => " . join(" ",@{$self->redirect_table->{$k}}));
+        $self->_diag("\t $k => " . join(", ",@{$self->redirect_table->{$k}}));
     }
 
     $r->any('*' => sub { $self->_handle_request(shift) });
@@ -75,10 +75,16 @@ sub _redirect {
     $tx->req->method($r_method);
 
     if($self->policy eq "SOFTREDIRECT") {
-      my $redirect_to = @{$host_entry->{$r_host}}[0];
-      my $redirect_replace = @{$host_entry->{$r_host}}[1];
-      my $redirect_replace_with = @{$host_entry->{$r_host}}[2];
-      $r_urlpath =~ s/$redirect_replace/$redirect_replace_with/g;
+
+      my @rules = @{$host_entry->{$r_host}};
+      my $redirect_to = shift @rules;
+      do {$self->diag("Odd number of rewrite rules given. Expecting even") } and return unless scalar(@rules)  % 2 == 0;
+      for (my $i = 0;$i<=$#rules;$i+=2){
+         my $redirect_replace  =$rules[$i];
+          my $redirect_replace_with = $rules[$i+1];
+        $r_urlpath =~ s/$redirect_replace/$redirect_replace_with/g;
+      }
+
       my $url = Mojo::URL->new($redirect_to =~ /http:\/\// ? $redirect_to : "http://" . $redirect_to);
 
       if($url) {
