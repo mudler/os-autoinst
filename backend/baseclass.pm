@@ -1155,8 +1155,6 @@ sub start_proxy_server {
     # If host vm it's not in user mode, test developer needs to setup iptables rules to redirect the port on the guest machine
 
     @entry = split(/,/, $hosts) if $hosts;
-    # bmwqemu::diag ">> CONNECTIONS_HIJACK_PROXY_ENTRY supplied, but no real redirection address given. Format is: host:ip, host2:ip2 , ..." and return
-    #   unless (@entry > 0);
 
     # Generate record table from configuration
     my $redirect_table = {
@@ -1171,9 +1169,13 @@ sub start_proxy_server {
     # Handle SUSEMIRROR and MIRROR_HTTP transparently
     if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
         bmwqemu::diag ">> Proxy: Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP";
-        # XXX: Todo, add more-than-one rewrite rule with regex. Aside from repodata, we need to handle now /tumbleweed/repo/.*oss/ -> "" (remove it)
-        $redirect_table->{"download.opensuse.org"}
-          = [$bmwqemu::vars{MIRROR_HTTP}, "/tumbleweed/repo/.*oss/repodata", "/suse/repodata", "/tumbleweed/repo/.*oss/", "/"];
+        $redirect_table->{"download.opensuse.org"} = [
+            $bmwqemu::vars{MIRROR_HTTP}, "/tumbleweed/repo/.*oss/repodata",
+            "/suse/repodata",            "/tumbleweed/repo/.*oss/",
+            "/",                         $bmwqemu::vars{ARCH} . "/",
+            "/suse/" . $bmwqemu::vars{ARCH} . "/"
+        ];    
+
         $policy = "SOFTREDIRECT";    # in this case we need the REDIRECT policy anyway.
     }
 
