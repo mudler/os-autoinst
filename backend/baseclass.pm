@@ -1174,9 +1174,9 @@ sub start_proxy_server {
             "/suse/repodata",            "/tumbleweed/repo/.*oss/",
             "/",                         $bmwqemu::vars{ARCH} . "/",
             "/suse/" . $bmwqemu::vars{ARCH} . "/"
-        ];    
+        ];
 
-        $policy = "SOFTREDIRECT";    # in this case we need the REDIRECT policy anyway.
+        $policy = "SOFTREDIRECT";    # in this case we need the SOFTREDIRECT policy, since we need rewrite rules for URLs.
     }
 
     $self->_child_process(
@@ -1231,12 +1231,15 @@ sub start_dns_server {
         bmwqemu::diag ">> DNS: Use of mirror detected. Setting up DNS configuration automatically for : " . $mirror_url;
         if ($mirror->host()) {
             $record_table{$mirror->host()} = "FORWARD" if !exists $record_table{$mirror->host()};
+            $record_table{"download.opensuse.org"} = ["download.opensuse.org. A ". ($bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname) ];
         }
     }
 
-    if ($proxy_policy and $proxy_policy ne "DROP") {
-        $record_table{"*"} = $bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname;
-    }
+    # This solution is maybe more fancy, but if you enable it be sure to delete the download.opensuse.org DNS entry right above ^^^^^^^
+    # if ($proxy_policy and $proxy_policy ne "DROP") {
+    #     $record_table{"*"} = $bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname;
+    # }
+    #
 
     bmwqemu::diag ">> DNS Server: Listening on ${listening_address}:${listening_port} " if keys %record_table;
 
