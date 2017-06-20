@@ -1170,10 +1170,12 @@ sub start_proxy_server {
     if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
         bmwqemu::diag ">> Proxy: Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP";
         $redirect_table->{"download.opensuse.org"} = [
-            $bmwqemu::vars{MIRROR_HTTP}, "/tumbleweed/repo/.*oss/repodata",
-            "/suse/repodata",            "/tumbleweed/repo/.*oss/",
-            "/",                         $bmwqemu::vars{ARCH} . "/",
-            "/suse/" . $bmwqemu::vars{ARCH} . "/"
+            $bmwqemu::vars{MIRROR_HTTP},
+             "/tumbleweed/repo/.*oss/repodata", "/suse/repodata",
+               "/tumbleweed/repo/.*oss/",         "/",
+                $bmwqemu::vars{ARCH} . "/",           "/suse/" . $bmwqemu::vars{ARCH} . "/",
+            "/YaST/Repos/openSUSE_Factory_Servers.xml", "FORWARD",
+            "/YaST/Repos/_openSUSE_Factory_Default.xml", "FORWARD"
         ];
 
         $policy = "SOFTREDIRECT";    # in this case we need the SOFTREDIRECT policy, since we need rewrite rules for URLs.
@@ -1231,8 +1233,10 @@ sub start_dns_server {
         bmwqemu::diag ">> DNS: Use of mirror detected. Setting up DNS configuration automatically for : " . $mirror_url;
         if ($mirror->host()) {
             $record_table{$mirror->host()} = "FORWARD" if !exists $record_table{$mirror->host()};
-            $record_table{"download.opensuse.org"} = ["download.opensuse.org. A ". ($bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname) ];
+            $record_table{"download.opensuse.org"}
+              = ["download.opensuse.org. A " . ($bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname)];
         }
+        $proxy_policy = 'SINK';
     }
 
     # This solution is maybe more fancy, but if you enable it be sure to delete the download.opensuse.org DNS entry right above ^^^^^^^
