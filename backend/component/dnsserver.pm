@@ -7,15 +7,15 @@ use bmwqemu;
 
 has [qw(record_table listening_port listening_address )];
 
-has 'forward_nameserver' => sub {['8.8.8.8']};
+has 'forward_nameserver' => sub { ['8.8.8.8'] };
 
-has 'global_policy' => 'FORWARD';
+has 'global_policy' => 'SINK';
 
 sub start {
 
     my $self = shift;
 
-    bmwqemu::diag(">> DNS Server Global Policy is ".$self->global_policy());
+    bmwqemu::diag(">> DNS Server Global Policy is " . $self->global_policy());
 
     my $sinkhole = backend::component::dnsresolver->new(%{$self->record_table});
 
@@ -33,9 +33,9 @@ sub start {
                 bmwqemu::diag(">> Forward for $qname");
 
                 my $forward_resolver = new Net::DNS::Resolver(
-                nameservers => $self->forward_nameserver(),
-                recurse     => 1,
-                debug       => 0
+                    nameservers => $self->forward_nameserver(),
+                    recurse     => 1,
+                    debug       => 0
                 );
                 my $question = $forward_resolver->query($qname, $qtype, $qclass);
 
@@ -62,19 +62,20 @@ sub start {
                 @ans = $question->answer();
                 bmwqemu::diag(">> DNS Server: Answer " . $_->string) for @ans;
                 $rcode = "NOERROR";
-            } else {
-                    $rcode = "NXDOMAIN";
-                }
+            }
+            else {
+                $rcode = "NXDOMAIN";
+            }
 
-            if(@ans == 0 && $self->global_policy() eq "FORWARD") {
-              bmwqemu::diag(">> DNS Server: Global policy is FORWARD, forwarding request to " . join(", ",@{$self->forward_nameserver()} ) ) ;
+            if (@ans == 0 && $self->global_policy() eq "FORWARD") {
+                bmwqemu::diag(">> DNS Server: Global policy is FORWARD, forwarding request to " . join(", ", @{$self->forward_nameserver()}));
 
-              my $forward_resolver = new Net::DNS::Resolver(
-              nameservers => $self->forward_nameserver(),
-              recurse     => 1,
-              debug       => 0
-              );
-              my $question = $forward_resolver->query($qname, $qtype, $qclass);
+                my $forward_resolver = new Net::DNS::Resolver(
+                    nameservers => $self->forward_nameserver(),
+                    recurse     => 1,
+                    debug       => 0
+                );
+                my $question = $forward_resolver->query($qname, $qtype, $qclass);
 
                 if (defined $question) {
                     @ans = $question->answer();
