@@ -34,7 +34,6 @@ sub _handle_request {
     my ($self, $controller) = @_;
     $controller->render_later;
 
-
     my $r_url     = $controller->tx->req->url;
     my $r_urlpath = $controller->tx->req->url->path;
 
@@ -57,7 +56,7 @@ sub _handle_request {
         return;
     }
 
-    my $tx = $self->_build_tx($controller, $r_host, $r_urlpath, $r_method);
+    my $tx = $self->_build_tx($controller->tx->req->clone(), $r_host, $r_urlpath, $r_method);
     unless ($tx) {
         $self->_diag("Proxy was unable to build the request");
         $controller->reply->not_found;
@@ -67,9 +66,13 @@ sub _handle_request {
     my $req_tx = $self->ua->inactivity_timeout(20)->max_redirects(5)->connect_timeout(20)->request_timeout(10)->start($tx);
 
     unless ($req_tx->result->is_success) {
-        $controller->reply->not_found;
-        $self->_diag("!! error: Something went wrong when processing the request, return code from request is: " . $req_tx->result->code);
-        return;
+        $self->_diag("!! Request error: Something went wrong when processing the request, return code from request is: " . $req_tx->result->code);
+        if ($req_tx->result->code eq "404") {
+            $self->_diag("!! Returning 404");
+            $controller->reply->not_found;
+            return;
+        }
+        $self->_diag("!! Forwarding to client anyway");
     }
 
     $controller->tx->res($req_tx->res);
@@ -80,21 +83,20 @@ sub _handle_request {
 sub _diag {
     my ($self, @messages) = @_;
 
-    bmwqemu::diag ">> " . __PACKAGE__ . " @messages";
-
+    bmwqemu::diag __PACKAGE__ . " @messages";
 }
 
 sub _build_tx {
-    my ($self, $controller, $r_host, $r_urlpath, $r_method) = @_;
+    my ($self, $from, $r_host, $r_urlpath, $r_method) = @_;
     my $host_entry = $self->redirect_table;
 
     #Start forging - FORWARD by default
     my $tx = Mojo::Transaction::HTTP->new();
-    $tx->req($controller->tx->req->clone());    #this is better, we keep also the same request
+    $tx->req($from);    #this is better, we keep also the same request
     $tx->req->method($r_method);
 
     if ($self->policy eq "SOFTREDIRECT") {
-        $controller->reply->not_found and return unless exists $host_entry->{$r_host};
+        return unless exists $host_entry->{$r_host};
 
         my @rules = @{$host_entry->{$r_host}};
 
@@ -132,6 +134,8 @@ sub _build_tx {
         $self->_diag("Redirecting to: " . $tx->req->url->to_abs . " Path: " . $tx->req->url->path);
     }
     elsif ($self->policy eq "REDIRECT" && exists $host_entry->{$r_host}) {
+        return unless exists $host_entry->{$r_host};
+
         my $redirect_to = @{$host_entry->{$r_host}}[0];
         my $url = Mojo::URL->new($redirect_to =~ /http:\/\// ? $redirect_to : "http://" . $redirect_to);
         if ($url) {
@@ -156,20 +160,6 @@ sub _build_tx {
         $self->_diag("No redirect rules for the host, forwarding to: " . $r_host);
     }
     return $tx;
-}
-
-sub _redirect {
-    my $self       = shift;
-    my $controller = shift;
-    my $host_entry = $self->redirect_table;
-
-
-
-
-
-
-
-
 }
 
 sub start {

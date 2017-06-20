@@ -2,7 +2,7 @@
 package backend::component::dnsserver;
 use Mojo::Base -base;
 use Net::DNS::Nameserver;
-use backend::component::dnsresolver;
+use backend::component::dnsserver::dnsresolver;
 use bmwqemu;
 
 has [qw(record_table listening_port listening_address )];
@@ -15,9 +15,9 @@ sub start {
 
     my $self = shift;
 
-    bmwqemu::diag(">> DNS Server Global Policy is " . $self->global_policy());
+    $self->_diag("Global Policy is " . $self->global_policy());
 
-    my $sinkhole = backend::component::dnsresolver->new(%{$self->record_table});
+    my $sinkhole = backend::component::dnsserver::dnsresolver->new(%{$self->record_table});
 
     my $ns = Net::DNS::Nameserver->new(
         LocalPort    => $self->listening_port,
@@ -26,11 +26,11 @@ sub start {
             my ($qname, $qclass, $qtype, $peerhost, $query, $conn) = @_;
             my ($rcode, @ans, @auth, @add);
 
-            bmwqemu::diag(">> DNS Server: Intercepting request for $qname");
+            $self->_diag("Intercepting request for $qname");
 
             if ($self->record_table()->{$qname} and $self->record_table()->{$qname} eq "FORWARD") {
                 $rcode = "SERVFAIL";
-                bmwqemu::diag(">> Forward for $qname");
+                $self->_diag("Forward for $qname");
 
                 my $forward_resolver = new Net::DNS::Resolver(
                     nameservers => $self->forward_nameserver(),
@@ -41,7 +41,7 @@ sub start {
 
                 if (defined $question) {
                     @ans = $question->answer();
-                    bmwqemu::diag(">> DNS Server: Answer(FWD) " . $_->string) for @ans;
+                    $self->_diag("Answer(FWD) " . $_->string) for @ans;
                     $rcode = "NOERROR";
                 }
 
@@ -50,17 +50,15 @@ sub start {
             }
             elsif ($self->record_table()->{$qname} and $self->record_table()->{$qname} eq "DROP") {
                 $rcode = "NXDOMAIN";
-                bmwqemu::diag(">> Drop for $qname , returning $rcode");
+                $self->_diag("Drop for $qname , returning $rcode");
                 return ($rcode, []);
             }
-
-
 
             my $question = $sinkhole->query($qname, $qtype, $qclass);
 
             if (defined $question) {
                 @ans = $question->answer();
-                bmwqemu::diag(">> DNS Server: Answer " . $_->string) for @ans;
+                $self->_diag("Answer " . $_->string) for @ans;
                 $rcode = "NOERROR";
             }
             else {
@@ -68,7 +66,7 @@ sub start {
             }
 
             if (@ans == 0 && $self->global_policy() eq "FORWARD") {
-                bmwqemu::diag(">> DNS Server: Global policy is FORWARD, forwarding request to " . join(", ", @{$self->forward_nameserver()}));
+                $self->_diag("Global policy is FORWARD, forwarding request to " . join(", ", @{$self->forward_nameserver()}));
 
                 my $forward_resolver = new Net::DNS::Resolver(
                     nameservers => $self->forward_nameserver(),
@@ -79,7 +77,7 @@ sub start {
 
                 if (defined $question) {
                     @ans = $question->answer();
-                    bmwqemu::diag(">> DNS Server: Answer(FWD-fallback) " . $_->string) for @ans;
+                    $self->_diag("Answer(FWD-fallback) " . $_->string) for @ans;
                     $rcode = "NOERROR";
                 }
                 else {
@@ -94,10 +92,16 @@ sub start {
         Verbose => 0,
     ) || die "couldn't create nameserver object\n";
 
-
-    bmwqemu::diag("CONNECTIONS_HIJACK: DNS Server started");
+    $self->_diag("CONNECTIONS_HIJACK: DNS Server started");
 
     $ns->main_loop;
 
 }
+
+sub _diag {
+    my ($self, @messages) = @_;
+
+    bmwqemu::diag __PACKAGE__ . " @messages";
+}
+
 1;

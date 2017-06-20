@@ -1,4 +1,4 @@
-package backend::component::dnsresolver;
+package backend::component::dnsserver::dnsresolver;
 
 use warnings;
 use strict;
@@ -28,11 +28,10 @@ sub send {
 
     $self->_reset_errorstring;
 
-    my ($result, $aa, @answer_rrs);
+    my ($result, @answer_rrs);
 
     if (not defined($result) or defined($Net::DNS::rcodesbyname{$result})) {
         # Valid RCODE, return a packet:
-        $aa     = TRUE      if not defined($aa);
         $result = 'NOERROR' if not defined($result);
 
         if (defined(my $records = $self->{records})) {
@@ -58,7 +57,7 @@ sub send {
         my $packet = Net::DNS::Packet->new($domain, $rr_type, $class);
         $packet->header->qr(TRUE);
         $packet->header->rcode($result);
-        $packet->header->aa($aa);
+        $packet->header->aa(TRUE);
         $packet->push(answer => @answer_rrs);
 
         return $packet;
