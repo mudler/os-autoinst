@@ -61,8 +61,8 @@ sub _redirect {
         return;
     }
 
-    $self->_diag("Request from: " . $client_address . " method: " . $r_method . " to host:" . $r_host);
-    $self->_diag("Requested url is: " . $controller->tx->req->url->to_string);
+    $self->_diag("Request from: " . $client_address . " method: " . $r_method . " to host: " . $r_host);
+    $self->_diag("Requested url is: " . $controller->tx->req->url->to_abs);
     if ($self->policy eq "DROP") {
         $self->_diag("Answering with 404");
         $controller->reply->not_found;
@@ -72,12 +72,13 @@ sub _redirect {
     #Start forging - FORWARD by default
     my $tx = Mojo::Transaction::HTTP->new();
     $tx->req($controller->tx->req->clone());    #this is better, we keep also the same request
-    $tx->req->url->path($r_urlpath);
     $tx->req->method($r_method);
 
     if ($self->policy eq "SOFTREDIRECT") {
+        $controller->reply->not_found and return unless exists $host_entry->{$r_host};
 
-        my @rules       = @{$host_entry->{$r_host}};
+        my @rules = @{$host_entry->{$r_host}};
+
         my $redirect_to = shift @rules;
         do { $self->diag("Odd number of rewrite rules given. Expecting even") }
           and return unless scalar(@rules) % 2 == 0;
@@ -97,8 +98,13 @@ sub _redirect {
 
         if ($url and $url->path ne "/") {
             $tx->req->url->path($url->path . $r_urlpath);
+
         }
-        $self->_diag("Redirecting to: " . $tx->req->url->to_string);
+        else {
+            $tx->req->url->path($r_urlpath);
+
+        }
+        $self->_diag("Redirecting to: " . $tx->req->url->to_abs . " Path: " . $tx->req->url->path);
     }
     elsif ($self->policy eq "REDIRECT" && exists $host_entry->{$r_host}) {
         my $redirect_to = @{$host_entry->{$r_host}}[0];
@@ -111,11 +117,17 @@ sub _redirect {
         if ($url and $url->path ne "/") {
             $tx->req->url->path($url->path . $r_urlpath);
         }
+        else {
+            $tx->req->url->path($r_urlpath);
+
+        }
         $self->_diag("Redirecting to: " . $tx->req->url->to_string);
     }
     elsif ($self->policy eq "FORWARD" or (($self->policy eq "REDIRECT" && !exists $host_entry->{$r_host})))
     {    # If policy is REDIRECT and no entry in the host table, fallback to FORWARD
         $tx->req->url->parse("http://" . $r_host);
+        $tx->req->url->path($r_urlpath);
+
         $self->_diag("No redirect rules for the host, forwarding to: " . $r_host);
     }
 
