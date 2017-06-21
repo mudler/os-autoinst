@@ -9,13 +9,13 @@ has [qw(record_table listening_port listening_address )];
 
 has 'forward_nameserver' => sub { ['8.8.8.8'] };
 
-has 'global_policy' => 'SINK';
+has 'policy' => 'SINK';
 
 sub start {
 
     my $self = shift;
 
-    $self->_diag("Global Policy is " . $self->global_policy());
+    $self->_diag("Global Policy is " . $self->policy());
 
     my $sinkhole = backend::component::dnsserver::dnsresolver->new(%{$self->record_table});
 
@@ -65,7 +65,7 @@ sub start {
                 $rcode = "NXDOMAIN";
             }
 
-            if (@ans == 0 && $self->global_policy() eq "FORWARD") {
+            if (@ans == 0 && $self->policy() eq "FORWARD") {
                 $self->_diag("Global policy is FORWARD, forwarding request to " . join(", ", @{$self->forward_nameserver()}));
 
                 my $forward_resolver = new Net::DNS::Resolver(
