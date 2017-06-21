@@ -1178,7 +1178,7 @@ sub start_proxy_server {
             "/YaST/Repos/_openSUSE_Factory_Default.xml", "FORWARD"
         ];
 
-        $policy = "SOFTREDIRECT";    # in this case we need the SOFTREDIRECT policy, since we need rewrite rules for URLs.
+        $policy = "URLREWRITE";    # in this case we need the URLREWRITE policy, since we need rewrite rules for URLs.
     }
 
     $self->_child_process(

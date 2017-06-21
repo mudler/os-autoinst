@@ -16,7 +16,7 @@ sub startup {
     my $r = $self->routes;
 
     die "Invalid policy supplied for Proxy"
-      unless ($self->policy eq "FORWARD" or $self->policy eq "DROP" or $self->policy eq "REDIRECT" or $self->policy eq "SOFTREDIRECT");
+      unless ($self->policy eq "FORWARD" or $self->policy eq "DROP" or $self->policy eq "REDIRECT" or $self->policy eq "URLREWRITE");
     $self->_diag("Server started at " . $self->listening_address . ":" . $self->listening_port);
     $self->_diag("Default policy is " . $self->policy);
     $self->_diag("Redirect table: ") if keys %{$self->redirect_table};
@@ -95,7 +95,7 @@ sub _build_tx {
     $tx->req($from);    #this is better, we keep also the same request
     $tx->req->method($r_method);
 
-    if ($self->policy eq "SOFTREDIRECT") {
+    if ($self->policy eq "URLREWRITE") {
         return unless exists $host_entry->{$r_host};
 
         my @rules = @{$host_entry->{$r_host}};
