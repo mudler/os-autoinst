@@ -161,9 +161,14 @@ sub connection_hijack {
 
 sub set_dns {
     my ($self, @nameservers) = @_;
-    my $servers = join(" ", @nameservers);
-    testapi::script_run("sed -i -e 's|^NETCONFIG_DNS_STATIC_SERVERS=.*|NETCONFIG_DNS_STATIC_SERVERS=\"$servers\"|' /etc/sysconfig/network/config");
-    testapi::script_run("netconfig -f update");
+    # We could handle it in this way:
+    #  my $servers = join(" ", @nameservers);
+    #  testapi::script_run("sed -i -e 's|^NETCONFIG_DNS_STATIC_SERVERS=.*|NETCONFIG_DNS_STATIC_SERVERS=\"$servers\"|' /etc/sysconfig/network/config");
+    #  testapi::script_run("netconfig -f update");
+    # But since the internal DNS server is also able to forward requests to outside, we do not need to have other nameservers.
+    testapi::script_run("echo 'nameserver " . shift(@nameservers) . "' > /etc/resolv.conf", 0);
+    testapi::script_run("echo 'nameserver $_' >> /etc/resolv.conf", 0) for @nameservers;
+
     testapi::script_run("cat /etc/resolv.conf");
 }
 
