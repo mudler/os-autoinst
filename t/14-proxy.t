@@ -41,29 +41,24 @@ sub _start_proxy {
 
     $redirect_table //= {};
 
-    my $pid = fork;
-    die "Cannot fork: $!" unless defined $pid;
+    my $proxy = backend::component::proxy->new(
+        listening_address => $ip,
+        listening_port    => $port,
+        policy            => $policy,
+        redirect_table    => $redirect_table,
+        verbose           => 0
+    )->start;
 
-    if ($pid == 0) {
-        backend::component::proxy->new(
-            listening_address => $ip,
-            listening_port    => $port,
-            policy            => $policy,
-            redirect_table    => $redirect_table,
-            verbose           => 0
-        )->start;
-        exit 0;
-    }
 
     while (1) {
         last if $ua->get('http://' . $ip . ':' . $port)->connection;
     }
 
-    return $pid;
+    return $proxy;
 }
 
 subtest 'proxy forward' => sub {
-    my $pid = _start_proxy("FORWARD");
+    my $proxy = _start_proxy("FORWARD");
 
     my $res = _request('download.opensuse.org', '/tumbleweed/repo/oss/README');
     ok $res->is_success;
@@ -77,11 +72,11 @@ subtest 'proxy forward' => sub {
     ok $res->is_success;
     like $res->body, qr/openQA web-frontend, scheduler and tools\./, "HTTP Request was correctly forwarded";
 
-    kill POSIX::SIGKILL => $pid;
+    $proxy->stop();
 };
 
 subtest 'proxy drop' => sub {
-    my $pid = _start_proxy("DROP");
+    my $proxy = _start_proxy("DROP");
 
     my $res = _request('download.opensuse.org', '/tumbleweed/repo/oss/README');
     ok !$res->is_success;
@@ -95,11 +90,11 @@ subtest 'proxy drop' => sub {
     ok !$res->is_success;
     is $res->code, "404", "HTTP Request was dropped correctly with a 404";
 
-    kill POSIX::SIGKILL => $pid;
+    $proxy->stop();
 };
 
 subtest 'proxy redirect' => sub {
-    my $pid = _start_proxy("REDIRECT", {'github.com' => ['download.opensuse.org']});
+    my $proxy = _start_proxy("REDIRECT", {'github.com' => ['download.opensuse.org']});
 
     my $res = _request('github.com', '/tumbleweed/repo/oss/README');
     ok $res->is_success;
@@ -109,11 +104,11 @@ subtest 'proxy redirect' => sub {
     ok !$res->is_success;
     is $res->code, "404", "Redirect is correct, leads to a 404";
 
-    kill POSIX::SIGKILL => $pid;
+    $proxy->stop();
 };
 
 subtest 'proxy urlrewrite' => sub {
-    my $pid = _start_proxy(
+    my $proxy = _start_proxy(
         "URLREWRITE",
         {
             'download.opensuse.org' => [
@@ -137,7 +132,7 @@ subtest 'proxy urlrewrite' => sub {
     ok $res->is_success;
     like $res->body, qr/os-autoinst needles for openSUSE/, "HTTP Request with rewrite url";
 
-    kill POSIX::SIGKILL => $pid;
+    $proxy->stop();
 };
 
 

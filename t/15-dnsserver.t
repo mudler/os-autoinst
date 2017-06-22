@@ -28,7 +28,7 @@ use backend::component::dnsserver;
 
 $SIG{CHLD} = 'IGNORE';
 my $ip       = "127.0.0.1";
-my $port     = "9992";
+my $port     = "9993";
 my $resolver = new Net::DNS::Resolver(
     nameservers => [$ip],
     port        => $port,
@@ -59,26 +59,18 @@ sub _start_dnsserver {
     $record_table       //= {};
     $forward_nameserver //= [];
 
-    my $pid = fork;
-    die "Cannot fork: $!" unless defined $pid;
-
-    if ($pid == 0) {
-        backend::component::dnsserver->new(
-            listening_address  => $ip,
-            listening_port     => $port,
-            policy             => $policy,
-            record_table       => $record_table,
-            forward_nameserver => $forward_nameserver,
-            verbose            => 0
-        )->start;
-        exit 0;
-    }
-
-    return $pid;
+    return backend::component::dnsserver->new(
+        listening_address  => $ip,
+        listening_port     => $port,
+        policy             => $policy,
+        record_table       => $record_table,
+        forward_nameserver => $forward_nameserver,
+        verbose            => 1
+    )->start;
 }
 
 subtest 'dns requests in SINK mode' => sub {
-    my $pid = _start_dnsserver(
+    my $dnsserver = _start_dnsserver(
         "SINK",
         {
             "download.opensuse.org" => ["download.opensuse.org. A 127.0.0.1"],
@@ -103,11 +95,11 @@ subtest 'dns requests in SINK mode' => sub {
     $ans = _request("openqa.opensuse.org", "A", "IN");
     ok scalar(@$ans) > 0;
 
-    kill POSIX::SIGKILL => $pid;
+    $dnsserver->stop();
 };
 
 subtest 'dns requests in FORWARD mode' => sub {
-    my $pid = _start_dnsserver(
+    my $dnsserver = _start_dnsserver(
         "FORWARD",
         {
             "download.opensuse.org" => ["download.opensuse.org. A 127.0.0.1"],
@@ -132,11 +124,11 @@ subtest 'dns requests in FORWARD mode' => sub {
     $ans = _request("openqa.opensuse.org", "A", "IN");
     is scalar(@$ans), 0, "Domain rule with DROP won't be forwarded";
 
-    kill POSIX::SIGKILL => $pid;
+    $dnsserver->stop();
 };
 
 subtest 'dns requests with wildcard' => sub {
-    my $pid = _start_dnsserver(
+    my $dnsserver = _start_dnsserver(
         "FORWARD",
         {
             "download.opensuse.org" => ["download.opensuse.org. A 127.0.0.1"],
@@ -169,10 +161,10 @@ subtest 'dns requests with wildcard' => sub {
     $ans = _request("baz.org", "A", "IN");
     is_deeply $ans, [{"baz.org." => ["IN", "A", "2.2.2.2"]}], "Wildcard will answer to all other questions, even in FORWARD mode";
 
-    kill POSIX::SIGKILL => $pid;
+    $dnsserver->stop();
 
     # (almost) same tests but in SINK mode
-    $pid = _start_dnsserver(
+    $dnsserver = _start_dnsserver(
         "SINK",
         {
             "download.opensuse.org" => ["download.opensuse.org. A 127.0.0.1"],
@@ -207,7 +199,7 @@ subtest 'dns requests with wildcard' => sub {
     $ans = _request("baz.org", "A", "IN");
     is_deeply $ans, [{"baz.org." => ["IN", "A", "2.2.2.2"]}], "Wildcard will answer to all other questions, even in FORWARD mode";
 
-    kill POSIX::SIGKILL => $pid;
+    $dnsserver->stop();
 };
 
 

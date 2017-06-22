@@ -1,6 +1,7 @@
 package backend::component::proxy;
+use base 'Mojolicious';
+use Mojo::Base 'backend::component::process';
 
-use Mojo::Base 'Mojolicious';
 use Mojo::Server::Daemon;
 use Mojo::Transaction::HTTP;
 use bmwqemu;
@@ -11,6 +12,50 @@ has 'redirect_table'    => sub { {} };
 has 'policy'            => "FORWARD";
 has 'verbose'           => 1;
 
+sub prepare {
+    my ($self) = @_;
+    my @entry;
+
+    my $hosts = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_ENTRY};
+    my $policy = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} || "FORWARD";    # Can be REDIRECT, DROP, FORWARD
+
+    my $proxy_server_port    = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_PORT}    || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT;
+    my $proxy_server_address = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_ADDRESS} || '127.0.0.1';
+
+    # If host vm it's not in user mode, test developer needs to setup iptables rules to redirect the port on the guest machine
+
+    @entry = split(/,/, $hosts) if $hosts;
+
+    # Generate record table from configuration
+    my $redirect_table = {
+        map {
+            my ($host, @redirect) = split(/:/, $_);
+            $host => [@redirect] if ($host and @redirect)
+        } @entry
+    };
+
+    $policy = "REDIRECT" if (!$policy && $hosts);
+
+    # Handle SUSEMIRROR and MIRROR_HTTP transparently
+    if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
+        $self->_diag("Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP");
+        $redirect_table->{"download.opensuse.org"} = [
+            $bmwqemu::vars{MIRROR_HTTP},           "/tumbleweed/repo/.*oss/repodata",
+            "/suse/repodata",                      "/tumbleweed/repo/.*oss/",
+            "/",                                   $bmwqemu::vars{ARCH} . "/",
+            "/suse/" . $bmwqemu::vars{ARCH} . "/", "/YaST/Repos/openSUSE_Factory_Servers.xml",
+            "FORWARD",                             "/YaST/Repos/_openSUSE_Factory_Default.xml",
+            "FORWARD"
+        ];
+
+        $policy = "URLREWRITE";    # in this case we need the URLREWRITE policy, since we need rewrite rules for URLs.
+    }
+    $self->redirect_table($redirect_table)          if keys %{$redirect_table} > 0;
+    $self->listening_port($proxy_server_port)       if $proxy_server_port;
+    $self->listening_address($proxy_server_address) if $proxy_server_address;
+    $self->policy($policy)                          if $policy;
+}
+
 sub startup {
     my $self = shift;
     $self->log->level("error");
@@ -18,13 +63,6 @@ sub startup {
 
     die "Invalid policy supplied for Proxy"
       unless ($self->policy eq "FORWARD" or $self->policy eq "DROP" or $self->policy eq "REDIRECT" or $self->policy eq "URLREWRITE");
-    $self->_diag("Server started at " . $self->listening_address . ":" . $self->listening_port);
-    $self->_diag("Default policy is " . $self->policy);
-    $self->_diag("Redirect table: ") if keys %{$self->redirect_table};
-
-    foreach my $k (keys %{$self->redirect_table}) {
-        $self->_diag("\t $k => " . join(", ", @{$self->redirect_table->{$k}}));
-    }
 
     $r->any('*' => sub { $self->_handle_request(shift) });
     $r->any('/' => sub { $self->_handle_request(shift) });
@@ -78,12 +116,6 @@ sub _handle_request {
 
     $controller->tx->res($req_tx->res);
     $controller->rendered;
-}
-
-sub _diag {
-    my ($self, @messages) = @_;
-
-    bmwqemu::diag __PACKAGE__ . " @messages" if $self->verbose;
 }
 
 sub _build_tx {
@@ -164,7 +196,17 @@ sub _build_tx {
 
 sub start {
     my $self = shift;
-    Mojo::Server::Daemon->new(listen => ['http://' . $self->listening_address . ':' . $self->listening_port], app => $self)->run;
+    $self->_diag("Server started at " . $self->listening_address . ":" . $self->listening_port);
+    $self->_diag("Default policy is " . $self->policy);
+    $self->_diag("Redirect table: ") if keys %{$self->redirect_table};
+
+    foreach my $k (keys %{$self->redirect_table}) {
+        $self->_diag("\t $k => " . join(", ", @{$self->redirect_table->{$k}}));
+    }
+    $self->_fork(
+        sub {
+            Mojo::Server::Daemon->new(listen => ['http://' . $self->listening_address . ':' . $self->listening_port], app => $self)->run;
+        });
 }
 
 1;

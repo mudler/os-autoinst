@@ -1,19 +1,69 @@
 package backend::component::dnsserver;
-use Mojo::Base -base;
+use Mojo::Base "backend::component::process";
 use Net::DNS::Nameserver;
 use backend::component::dnsserver::dnsresolver;
 use bmwqemu;
+use Mojo::URL;
+use osutils qw(looks_like_ip);
 
 has [qw(record_table listening_port listening_address )];
 has 'forward_nameserver' => sub { ['8.8.8.8'] };
 has 'policy'             => 'SINK';
 has 'verbose'            => 1;
 
+sub prepare {
+    my ($self) = @_;
+    my $dns_table = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_ENTRY};
+    my $listening_port = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT + 2;
+    $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} = $listening_port
+      if !$bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} ne $listening_port;
+    my $listening_address = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_ADDRESS} || '127.0.0.1';
+    my $hostname = $bmwqemu::vars{WORKER_HOSTNAME} || '10.0.2.2';
+
+    my %record_table;
+
+    if ($dns_table) {
+        my @entry = split(/,/, $dns_table);
+        $self->_diag("CONNECTIONS_HIJACK_DNS_ENTRY supplied, but no real redirection rules given. Format is: host:ip, host2:ip2 , ...") and return
+          unless (@entry > 0);
+
+        # Generate record table from configuration, translate them in DNS entries
+        %record_table = map {
+            my ($host, $ip) = split(/:/, $_);
+            next unless $host and $ip;
+            $host => ($ip eq "FORWARD" or $ip eq "DROP") ? $ip : (looks_like_ip($ip)) ? ["$host.     A   $ip"] : ["$host.     CNAME   $ip"];
+        } @entry;
+
+    }
+
+    for my $mirror_url ($bmwqemu::vars{MIRROR_HTTP}, $bmwqemu::vars{SUSEMIRROR}) {
+        my $mirror = Mojo::URL->new($mirror_url);
+        if ($mirror->host()) {
+            $record_table{$mirror->host()} = "FORWARD" if !exists $record_table{$mirror->host()};
+            $record_table{"download.opensuse.org"}
+              = ["download.opensuse.org. A " . ($bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname)];
+        }
+    }
+
+    $self->_diag("Listening on ${listening_address}:${listening_port}") if keys %record_table;
+
+    foreach my $k (keys %record_table) {
+        $self->_diag("table entry: $k => @{${record_table{$k}}}") if ref($record_table{$k}) eq "ARRAY";
+        $self->_diag("Forward rule: $k => ${record_table{$k}}")   if ref($record_table{$k}) ne "ARRAY";
+    }
+
+    $self->_diag("All DNS requests that doesn't match a defined criteria will be redirected to the host: " . $record_table{"*"}) if $record_table{"*"};
+
+    $self->record_table(\%record_table)          if keys %record_table > 0;
+    $self->listening_port($listening_port)       if $listening_port;
+    $self->listening_address($listening_address) if $listening_address;
+
+}
 sub _forward_resolve {
     my $self = shift;
     my ($qname, $qtype, $qclass) = @_;
     my (@ans, $rcode);
-    $self->_diag("Global policy is FORWARD, forwarding request to " . join(", ", @{$self->forward_nameserver()}));
+    $self->_diag("Forwarding request to " . join(", ", @{$self->forward_nameserver()}));
 
     my $forward_resolver = new Net::DNS::Resolver(
         nameservers => $self->forward_nameserver(),
@@ -91,14 +141,7 @@ sub start {
 
     $self->_diag("Server started");
 
-    $ns->main_loop;
-
-}
-
-sub _diag {
-    my ($self, @messages) = @_;
-
-    bmwqemu::diag __PACKAGE__ . " @messages" if $self->verbose;
+    $self->_fork(sub { $ns->main_loop; });
 }
 
 1;
