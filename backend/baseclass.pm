@@ -35,9 +35,8 @@ use OpenQA::Benchmark::Stopwatch;
 use MIME::Base64 'encode_base64';
 use List::Util 'min';
 use List::MoreUtils 'uniq';
-use backend::component::proxy;
-use backend::component::dnsserver;
 use Mojo::URL;
+use Mojo::Loader qw(find_modules load_class);
 use osutils qw(looks_like_ip);
 
 # should be a singleton - and only useful in backend process
@@ -55,7 +54,10 @@ __PACKAGE__->mk_accessors(
 
 sub new {
     my $class = shift;
-    my $self = bless({class => $class}, $class);
+
+    my $self = bless @_ ? @_ > 1 ? {@_} : {%{$_[0]}} : {}, $class;
+
+    $self->{class}                = $class;
     $self->{started}              = 0;
     $self->{serialfile}           = "serial0";
     $self->{serial_offset}        = 0;
@@ -130,13 +132,24 @@ sub run {
         $console->backend($self);
     }
 
-    if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS}) {
-        $self->start_hijack();
+    # Load components and starts them.
+    # Components can be supplied as a list or as a HASH reference containing components options to pass by.
+    if (exists $self->{components} and ref($self->{components}) eq "HASH" and keys %{$self->{components}} > 0) {
+        $self->_load_component($_, $self->{components}->{$_}) for keys %{$self->{components}};
+    }
+    elsif (exists $self->{components} and ref($self->{components}) eq "ARRAY" and @{$self->{components}} > 0) {
+        $self->_load_component($_) for @{$self->{components}};
     }
 
     $self->run_capture_loop;
 
     bmwqemu::diag("management process exit at " . POSIX::strftime("%F %T", gmtime));
+
+    # Stop components when finished.
+    for my $component (@{$self->{active_components}}) {
+        $component->stop() if ($component->can("stop"));
+    }
+
 }
 
 =head2 run_capture_loop($timeout)
@@ -1118,156 +1131,21 @@ sub _child_process {
 
 }
 
-sub start_hijack {
-    my ($self) = @_;
+sub _load_component {
+    my ($self, $component, @args) = @_;
 
-# When both component are wanted, the guest machine must redirect the connection thru the proxy, which is running in a not-standard port (not 80, and dynamically allocated)
-# This means that or the guest O.S. redirects the connections manually (e.g. via iptables rules), which is not supported by backend
-# or, if NICTYPE=user we set automatically the redirect thru guestfwd option.
-    $bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} = 1
-      if (($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY})
-        || $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY} && $bmwqemu::vars{NICTYPE} ne "user");
-
-    $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} //= "FORWARD" if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
-
-    if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS}) {
-
-    }
-
-    # First start our fake DNS server.
-    $self->start_dns_server()   if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS});
-    $self->start_proxy_server() if ($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
-
-
-}
-
-
-sub start_proxy_server {
-    my ($self) = @_;
-    my @entry;
-
-    my $hosts = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_ENTRY};
-    my $policy = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} || "FORWARD";    # Can be REDIRECT, DROP, FORWARD
-
-    my $proxy_server_port    = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_PORT}    || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT;
-    my $proxy_server_address = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_SERVER_ADDRESS} || '127.0.0.1';
-
-    # If host vm it's not in user mode, test developer needs to setup iptables rules to redirect the port on the guest machine
-
-    @entry = split(/,/, $hosts) if $hosts;
-
-    # Generate record table from configuration
-    my $redirect_table = {
-        map {
-            my ($host, @redirect) = split(/:/, $_);
-            $host => [@redirect] if ($host and @redirect)
-        } @entry
-    };
-
-    $policy = "REDIRECT" if (!$policy && $hosts);
-
-    # Handle SUSEMIRROR and MIRROR_HTTP transparently
-    if ($bmwqemu::vars{MIRROR_HTTP} && $bmwqemu::vars{SUSEMIRROR}) {
-        bmwqemu::diag ">> Proxy: Use of mirror detected. Setting up Proxy configuration automatically according to MIRROR_HTTP";
-        $redirect_table->{"download.opensuse.org"} = [
-            $bmwqemu::vars{MIRROR_HTTP},           "/tumbleweed/repo/.*oss/repodata",
-            "/suse/repodata",                      "/tumbleweed/repo/.*oss/",
-            "/",                                   $bmwqemu::vars{ARCH} . "/",
-            "/suse/" . $bmwqemu::vars{ARCH} . "/", "/YaST/Repos/openSUSE_Factory_Servers.xml",
-            "FORWARD",                             "/YaST/Repos/_openSUSE_Factory_Default.xml",
-            "FORWARD"
-        ];
-
-        $policy = "URLREWRITE";    # in this case we need the URLREWRITE policy, since we need rewrite rules for URLs.
-    }
-
-    $self->_child_process(
-        sub {
-
-            $SIG{TERM} = sub { die "Caught a sigterm $!" };
-            $SIG{__DIE__} = undef;    # overwrite the default - just exit
-
-            my $proxy = backend::component::proxy->new(
-                redirect_table    => $redirect_table,
-                listening_port    => $proxy_server_port,
-                listening_address => $proxy_server_address,
-                policy            => $policy
-            );
-
-            $proxy->start;
-        });
-}
-
-sub start_dns_server {
-    my ($self) = @_;
-
-    my $dns_table = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_ENTRY};
-    my $listening_port = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{VNC} + bmwqemu::PROXY_BASE_PORT + 2;
-    $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} = $listening_port
-      if !$bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} || $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_PORT} ne $listening_port;
-    my $listening_address = $bmwqemu::vars{CONNECTIONS_HIJACK_DNS_SERVER_ADDRESS} || '127.0.0.1';
-    my $hostname          = $bmwqemu::vars{WORKER_HOSTNAME}                       || '10.0.2.2';
-    my $proxy_policy      = $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY}       || "FORWARD";
-
-    # XXX: remind to me. see https://forums.gentoo.org/viewtopic-t-164165-start-0.html for iptables rules to redirect the port on the guest
-
-    my %record_table;
-
-    if ($dns_table) {
-        my @entry = split(/,/, $dns_table);
-        bmwqemu::diag ">> CONNECTIONS_HIJACK_DNS_ENTRY supplied, but no real redirection rules given. Format is: host:ip, host2:ip2 , ..." and return
-          unless (@entry > 0);
-
-
-        # Generate record table from configuration, translate them in DNS entries
-        %record_table = map {
-            my ($host, $ip) = split(/:/, $_);
-            next unless $host and $ip;
-            $host => ($ip eq "FORWARD" or $ip eq "DROP") ? $ip : (looks_like_ip($ip)) ? ["$host.     A   $ip"] : ["$host.     CNAME   $ip"];
-        } @entry;
+    for my $module (find_modules 'backend::component') {
+        next unless $module =~ /$component/;
+        my $e = load_class $module;
+        bmwqemu::diag ">> Loading '$module' failed: $e" and next if ref $e;
+        my $loaded_module = $module->new(@args);
+        push(@{$self->{active_components}}, $loaded_module);
+        bmwqemu::diag ">> Component '$module' loaded";
+        # If in the components options we define prepare => 0, skip the prepare() call.
+        $loaded_module->prepare if ($module->can("prepare") and !(ref($args[0]) eq "HASH" and $args[0]->{prepare} and $args[0]->{prepare} == 1));
+        $loaded_module->start if ($module->can("start"));
 
     }
-
-    for my $mirror_url ($bmwqemu::vars{MIRROR_HTTP}, $bmwqemu::vars{SUSEMIRROR}) {
-        my $mirror = Mojo::URL->new($mirror_url);
-        bmwqemu::diag ">> DNS: Use of mirror detected. Setting up DNS configuration automatically for : " . $mirror_url;
-        if ($mirror->host()) {
-            $record_table{$mirror->host()} = "FORWARD" if !exists $record_table{$mirror->host()};
-            $record_table{"download.opensuse.org"}
-              = ["download.opensuse.org. A " . ($bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname)];
-        }
-        $proxy_policy = 'SINK';
-    }
-
-    # This solution is maybe more fancy, but if you enable it be sure to delete the download.opensuse.org DNS entry right above ^^^^^^^
-    # if ($proxy_policy and $proxy_policy ne "DROP") {
-    #     $record_table{"*"} = $bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} ? bmwqemu::HIJACK_FAKE_IP : $hostname;
-    # }
-    #
-
-    bmwqemu::diag ">> DNS Server: Listening on ${listening_address}:${listening_port} " if keys %record_table;
-
-    foreach my $k (keys %record_table) {
-        bmwqemu::diag ">> DNS table entry: $k => @{${record_table{$k}}}" if ref($record_table{$k}) eq "ARRAY";
-        bmwqemu::diag ">> DNS Forward rule: $k => ${record_table{$k}}"   if ref($record_table{$k}) ne "ARRAY";
-    }
-
-    bmwqemu::diag ">> All DNS requests that doesn't match a defined criteria will be redirected to the host: " . $record_table{"*"} if $record_table{"*"};
-
-
-    $self->_child_process(
-        sub {
-
-            $SIG{TERM} = sub { die "Caught a sigterm $!" };
-            $SIG{__DIE__} = undef;    # overwrite the default - just exit
-            my $dns_server = backend::component::dnsserver->new(
-                record_table      => \%record_table,
-                listening_port    => $listening_port,
-                listening_address => $listening_address
-            );
-            $dns_server->start;
-
-        });
 }
 
 1;

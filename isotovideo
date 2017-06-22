@@ -209,7 +209,19 @@ sub init_backend {
     $needles_git_hash = calculate_git_hash($needles_dir);
     $bmwqemu::vars{NEEDLES_GIT_HASH} = $needles_git_hash;
 
-    $bmwqemu::backend = backend::driver->new($bmwqemu::vars{BACKEND});
+    ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS}, $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY}) = 1
+      if $bmwqemu::vars{CONNECTIONS_HIJACK} and $bmwqemu::vars{CONNECTIONS_HIJACK} == 1;
+
+    $bmwqemu::vars{CONNECTIONS_HIJACK_FAKEIP} = 1
+      if (($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY})
+        || $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY} && $bmwqemu::vars{NICTYPE} ne "user");
+
+    $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY_POLICY} //= "FORWARD" if ($bmwqemu::vars{CONNECTIONS_HIJACK_DNS} && $bmwqemu::vars{CONNECTIONS_HIJACK_PROXY});
+
+    $bmwqemu::backend = backend::driver->new(
+        backend    => $bmwqemu::vars{BACKEND},
+        components => [('dnsserver') x !!($bmwqemu::vars{CONNECTIONS_HIJACK_DNS}), ('proxy') x !!($bmwqemu::vars{CONNECTIONS_HIJACK_PROXY})]);
+
     return $bmwqemu::backend;
 }
 
