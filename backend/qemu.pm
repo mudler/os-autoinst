@@ -31,8 +31,12 @@ use bmwqemu qw(fileContent diag save_vars);
 require IPC::System::Simple;
 use autodie ':all';
 use Try::Tiny;
-use osutils qw(find_bin gen_params qv);
+use osutils qw(find_bin gen_params qv attempt);
 use List::Util 'max';
+BEGIN {
+    $ENV{MOJO_PROCESS_DEBUG} = 1;
+}
+use Mojo::IOLoop::ReadWriteProcess 'process';
 
 sub new {
     my $class = shift;
@@ -42,19 +46,17 @@ sub new {
     # Compressing takes longer but the transfer takes shorter amount of time.
     $bmwqemu::vars{QEMU_COMPRESS_QCOW2} //= 1;
 
-    $self->{pid}         = undef;
-    $self->{pidfilename} = 'qemu.pid';
+    $self->{qemu_process} = process(
+        separate_err  => 0,
+        pidfile       => 'qemu.pid',
+        blocking_stop => 1
+    );
 
     return $self;
 }
 
 # baseclass virt method overwrite
-
-sub raw_alive {
-    my ($self) = @_;
-    return 0 unless $self->{pid};
-    return kill(0, $self->{pid});
-}
+sub raw_alive { shift->{qemu_process}->is_running }
 
 sub start_audiocapture {
     my ($self, $args) = @_;
@@ -90,7 +92,7 @@ sub eject_cd {
 
 sub cpu_stat {
     my $self = shift;
-    my $stat = bmwqemu::fileContent("/proc/" . $self->{pid} . "/stat");
+    my $stat = bmwqemu::fileContent("/proc/" . $self->{qemu_process}->pid . "/stat");
     my @a    = split(" ", $stat);
     return [@a[13, 14]];
 }
@@ -106,27 +108,7 @@ sub do_start_vm {
 
 sub kill_qemu {
     my ($self) = (@_);
-    my $pid = $self->{pid};
-
-    # already gone?
-    my $ret = waitpid($pid, WNOHANG);
-    diag "waitpid for $pid returned $ret";
-    return if ($ret == $pid || $ret == -1);
-
-    diag "sending TERM to qemu pid: $pid";
-    kill('TERM', $pid);
-    for my $i (1 .. 5) {
-        sleep 1;
-        $ret = waitpid($pid, WNOHANG);
-        diag "waitpid for $pid returned $ret";
-        last if ($ret == $pid);
-    }
-    unless ($ret == $pid) {
-        kill("KILL", $pid);
-        # now we have to wait
-        waitpid($pid, 0);
-    }
-
+    $self->{qemu_process}->stop();
     $self->_kill_children_processes;
 }
 
@@ -158,10 +140,7 @@ sub _dbus_call {
 sub do_stop_vm {
     my $self = shift;
 
-    return unless $self->{pid};
-    kill_qemu($self);
-    $self->{pid} = undef;
-    unlink($self->{pidfilename});
+    $self->kill_qemu();
 
     # Free allocated vlans - if any -
     return unless $self->{allocated_networks} && $self->{allocated_tap_devices} && $self->{allocated_vlan_tags};
@@ -737,119 +716,123 @@ sub start_qemu {
 
         gen_params @params, 'monitor', [qv "telnet:127.0.0.1:$vars->{QEMUPORT} server nowait"];
         gen_params @params, 'drive', [qv "file=$basedir/autoinst.img index=0 if=floppy"] if $vars->{AUTO_INST};
-        unshift(@params, $qemubin);
     }
 
-    pipe(my $reader, my $writer);
-    my $pid = fork();
-    die "fork failed" unless defined($pid);
-    if ($pid == 0) {
-        $SIG{__DIE__} = undef;    # overwrite the default - just exit
 
-        bmwqemu::diag(`$qemubin -version`);
-        bmwqemu::diag("starting: " . join(" ", @params));
 
-        # don't try to talk to the host's PA
-        $ENV{QEMU_AUDIO_DRV} = "none";
+    $self->{qemu_process}->once(
+        start => sub {
+            bmwqemu::diag(`$qemubin -version`);
+            bmwqemu::diag("starting: " . join(" ", $qemubin, @params));
+            $self->{qemupipe} = $self->{qemu_process}->read_stream;
 
-        # redirect qemu's output to the parent pipe
-        open(STDOUT, ">&", $writer);
-        open(STDERR, ">&", $writer);
-        close($reader);
-        exec(@params);
-        die "failed to exec qemu";
-    }
-    else {
-        $self->{pid} = $pid;
-    }
-    close $writer;
-    $self->{qemupipe} = $reader;
-    open(my $pidf, ">", $self->{pidfilename});
-    print $pidf $self->{pid}, "\n";
-    close $pidf;
+            my $vnc = $testapi::distri->add_console(
+                'sut',
+                'vnc-base',
+                {
+                    hostname        => 'localhost',
+                    connect_timeout => 3,
+                    port            => 5900 + $bmwqemu::vars{VNC}});
 
-    my $vnc = $testapi::distri->add_console(
-        'sut',
-        'vnc-base',
-        {
-            hostname        => 'localhost',
-            connect_timeout => 3,
-            port            => 5900 + $bmwqemu::vars{VNC}});
+            $vnc->backend($self);
+            try {
+                local $SIG{__DIE__} = undef;
+                $self->select_console({testapi_console => 'sut'});
+            }
+            catch {
+                if (!$self->raw_alive) {
+                    bmwqemu::diag "qemu didn't start";
+                    $self->read_qemupipe;
+                    exit(1);
+                }
+            };
 
-    $vnc->backend($self);
-    try {
-        local $SIG{__DIE__} = undef;
-        $self->select_console({testapi_console => 'sut'});
-    }
-    catch {
-        if (!raw_alive) {
-            bmwqemu::diag "qemu didn't start";
-            $self->read_qemupipe;
-            exit(1);
-        }
-    };
+            attempt {
+                attempts  => 20,
+                condition => sub { $self->{hmpsocket} },
+                cb        => sub {
+                    $self->{hmpsocket} = IO::Socket::UNIX->new(
+                        Type     => IO::Socket::UNIX::SOCK_STREAM,
+                        Peer     => "hmp_socket",
+                        Blocking => 0
+                    );
+                },
+                or => sub {
+                    die "can't open hmp";
+                }
+            };
 
-    $self->{hmpsocket} = IO::Socket::UNIX->new(
-        Type     => IO::Socket::UNIX::SOCK_STREAM,
-        Peer     => "hmp_socket",
-        Blocking => 0
-    ) or die "can't open hmp";
+            $self->{hmpsocket}->autoflush(1);
+            binmode $self->{hmpsocket};
+            my $flags = fcntl($self->{hmpsocket}, Fcntl::F_GETFL, 0) or die "can't getfl(): $!\n";
+            $flags = fcntl($self->{hmpsocket}, Fcntl::F_SETFL, $flags | Fcntl::O_NONBLOCK) or die "can't setfl(): $!\n";
 
-    $self->{hmpsocket}->autoflush(1);
-    binmode $self->{hmpsocket};
-    my $flags = fcntl($self->{hmpsocket}, Fcntl::F_GETFL, 0) or die "can't getfl(): $!\n";
-    $flags = fcntl($self->{hmpsocket}, Fcntl::F_SETFL, $flags | Fcntl::O_NONBLOCK) or die "can't setfl(): $!\n";
+            attempt {
+                attempts  => 20,
+                condition => sub { $self->{qmpsocket} },
+                cb        => sub {
+                    $self->{qmpsocket} = IO::Socket::UNIX->new(
+                        Type     => IO::Socket::UNIX::SOCK_STREAM,
+                        Peer     => "qmp_socket",
+                        Blocking => 0
+                    );
+                },
+                or => sub {
+                    die "can't open qmp";
+                }
+            };
 
-    $self->{qmpsocket} = IO::Socket::UNIX->new(
-        Type     => IO::Socket::UNIX::SOCK_STREAM,
-        Peer     => "qmp_socket",
-        Blocking => 0
-    ) or die "can't open qmp: $!";
+            $self->{qmpsocket}->autoflush(1);
+            binmode $self->{qmpsocket};
+            $flags = fcntl($self->{qmpsocket}, Fcntl::F_GETFL, 0) or die "can't getfl(): $!\n";
+            $flags = fcntl($self->{qmpsocket}, Fcntl::F_SETFL, $flags | Fcntl::O_NONBLOCK) or die "can't setfl(): $!\n";
 
-    $self->{qmpsocket}->autoflush(1);
-    binmode $self->{qmpsocket};
-    $flags = fcntl($self->{qmpsocket}, Fcntl::F_GETFL, 0) or die "can't getfl(): $!\n";
-    $flags = fcntl($self->{qmpsocket}, Fcntl::F_SETFL, $flags | Fcntl::O_NONBLOCK) or die "can't setfl(): $!\n";
+            diag sprintf("hmpsocket %d, qmpsocket %d", fileno($self->{hmpsocket}), fileno($self->{qmpsocket}));
 
-    diag sprintf("hmpsocket %d, qmpsocket %d", fileno($self->{hmpsocket}), fileno($self->{qmpsocket}));
+            fcntl($self->{qemupipe}, Fcntl::F_SETFL, Fcntl::O_NONBLOCK) or die "can't setfl(): $!\n";
 
-    fcntl($self->{qemupipe}, Fcntl::F_SETFL, Fcntl::O_NONBLOCK) or die "can't setfl(): $!\n";
+            # retrieve welcome
+            my $line = $self->_read_hmp;
+            print "WELCOME $line\n";
 
-    # retrieve welcome
-    my $line = $self->_read_hmp;
-    print "WELCOME $line\n";
+            my $init = myjsonrpc::read_json($self->{qmpsocket});
+            my $hash = $self->handle_qmp_command({execute => 'qmp_capabilities'});
 
-    my $init = myjsonrpc::read_json($self->{qmpsocket});
-    my $hash = $self->handle_qmp_command({execute => 'qmp_capabilities'});
+            my $cnt = bmwqemu::fileContent("$ENV{HOME}/.autotestvncpw");
+            if ($cnt) {
+                $self->send($cnt);
+            }
 
-    my $cnt = bmwqemu::fileContent("$ENV{HOME}/.autotestvncpw");
-    if ($cnt) {
-        $self->send($cnt);
-    }
+            if ($vars->{NICTYPE} eq "tap") {
+                $self->{allocated_networks}    = $num_networks;
+                $self->{allocated_tap_devices} = \@tapdev;
+                $self->{allocated_vlan_tags}   = \@nicvlan;
+                for (my $i = 0; $i < $num_networks; $i++) {
+                    $self->_dbus_call('set_vlan', $tapdev[$i], $nicvlan[$i]);
+                }
+                if (exists $vars->{OVS_DEBUG} && $vars->{OVS_DEBUG} == 1) {
+                    my (undef, $output) = $self->_dbus_call('show');
+                    bmwqemu::diag "Open vSwitch networking status:";
+                    bmwqemu::diag $output;
+                }
+            }
 
-    if ($vars->{NICTYPE} eq "tap") {
-        $self->{allocated_networks}    = $num_networks;
-        $self->{allocated_tap_devices} = \@tapdev;
-        $self->{allocated_vlan_tags}   = \@nicvlan;
-        for (my $i = 0; $i < $num_networks; $i++) {
-            $self->_dbus_call('set_vlan', $tapdev[$i], $nicvlan[$i]);
-        }
-        if (exists $vars->{OVS_DEBUG} && $vars->{OVS_DEBUG} == 1) {
-            my (undef, $output) = $self->_dbus_call('show');
-            bmwqemu::diag "Open vSwitch networking status:";
-            bmwqemu::diag $output;
-        }
-    }
+            if ($bmwqemu::vars{DELAYED_START}) {
+                print "DELAYED_START set, not starting CPU, waiting for resume_vm() call\n";
+            }
+            else {
+                print "Start CPU\n";
+                $self->handle_qmp_command({execute => 'cont'});
+            }
 
-    if ($bmwqemu::vars{DELAYED_START}) {
-        print "DELAYED_START set, not starting CPU, waiting for resume_vm() call\n";
-    }
-    else {
-        print "Start CPU\n";
-        $self->handle_qmp_command({execute => 'cont'});
-    }
+            $self->{select}->add($self->{qemupipe});
+        });
 
-    $self->{select}->add($self->{qemupipe});
+    # don't try to talk to the host's PA
+    local $ENV{QEMU_AUDIO_DRV} = "none";
+
+    $self->{qemu_process}->execute($qemubin)->args(\@params)->start();
+
 }
 
 sub _read_hmp {
