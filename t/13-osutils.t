@@ -130,4 +130,29 @@ subtest find_bin => sub {
 
 };
 
+subtest attempt => sub {
+    use osutils 'attempt';
+
+    my $var = 0;
+    attempt(5, sub { $var == 5 }, sub { $var++ });
+    is $var, 5;
+    $var = 0;
+    attempt {
+        attempts  => 6,
+        condition => sub { $var == 6 },
+        cb        => sub { $var++ }
+    };
+    is $var, 6;
+
+    $var = 0;
+    attempt {
+        attempts  => 6,
+        condition => sub { $var == 7 },
+        cb        => sub { $var++ },
+        or        => sub { $var = 42 }
+    };
+
+    is $var, 42;
+};
+
 done_testing();

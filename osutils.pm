@@ -27,6 +27,7 @@ our @EXPORT_OK = qw(
   find_bin
   gen_params
   qv
+  attempt
 );
 
 # An helper to lookup into a folder and find an executable file between given candidates
@@ -73,5 +74,18 @@ sub qv($) {
     split /\s+|\h+|\r+/, $_[0];
 }
 ## use critic
+
+sub attempt {
+    my $attempts = 0;
+    my ($total_attempts, $condition, $cb, $or) = ref $_[0] eq 'HASH' ? (@{$_[0]}{qw(attempts condition cb or)}) : @_;
+    until ($condition->() || $attempts >= $total_attempts) {
+        warn "Attempt $attempts";
+        $cb->();
+        sleep 1;
+        $attempts++;
+    }
+    $or->() if $or && !$condition->();
+    warn "Attempts terminated!";
+}
 
 1;
