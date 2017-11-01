@@ -17,7 +17,7 @@ use bmwqemu;
 $bmwqemu::vars{CASEDIR} = File::Basename::dirname($0) . '/fake';
 # array of messages sent with the fake json_send
 my @sent;
-
+my $out;
 
 like(exception { autotest::runalltests }, qr/ERROR: no tests loaded/, 'runalltests needs tests loaded first');
 stderr_like(
@@ -70,6 +70,7 @@ is($completed, 0, 'run_all with no tests should not complete');
 @sent = [];
 
 loadtest 'start';
+is(keys %autotest::tests, 1);
 loadtest 'next';
 is(keys %autotest::tests, 2);
 loadtest 'start', 'rescheduling same step later';
@@ -86,7 +87,21 @@ is($completed, 1, 'start+next+start should complete');
 # we cause the failure by mocking runtest rather than using a test
 # which dies, as runtest does a whole bunch of stuff when the test
 # dies that we may not want to run into here
-$mock_basetest->mock(runtest          => sub { die "oh noes!\n"; });
+#$mock_basetest->mock(runtest          => sub { die "oh noes!\n"; });
+$mock_basetest->mock(
+    runtest => sub {
+        my $self = shift;
+        my $name = ref($self);
+        eval {
+            open my $handle, '>', \$out;
+            local *STDERR = $handle;
+            local *STDOUT = $handle;
+            $self->pre_run_hook();
+            $self->run();
+            $self->post_run_hook();
+        };
+        $self->run_post_fail("test $name died") if $@;
+    });
 $mock_autotest->mock(query_isotovideo => sub { return 1; });
 
 autotest::run_all;
@@ -95,13 +110,58 @@ is($died,      0, 'non-fatal test failure should not die');
 is($completed, 1, 'non-fatal test failure should complete');
 @sent = [];
 
-# now let's add an ignore_failure test
 loadtest 'ignore_failure';
 autotest::run_all;
 ($died, $completed) = get_tests_done;
 is($died,      0, 'unimportant test failure should not die');
 is($completed, 1, 'unimportant test failure should complete');
 @sent = [];
+
+$out = undef;
+loadtest 'childtest';
+autotest::run_all;
+($died, $completed) = get_tests_done;
+is($died,      0, 'newtest should not die');
+is($completed, 1, 'newtest should complete');
+like $out, qr/Child have (.*) Bananas/i, "Child output of test is there";
+@sent = [];
+
+$out = undef;
+loadtest 'doubleparenttest';
+autotest::run_all;
+($died, $completed) = get_tests_done;
+is($died,      0, 'newtest should not die');
+is($completed, 1, 'newtest should complete');
+@sent = [];
+like $out, qr/Apples are awesomes, and i have/, "Child output of test is there";
+
+$out = undef;
+loadtest 'doubleparenttestinverted';
+autotest::run_all;
+($died, $completed) = get_tests_done;
+is($died,      0, 'newtest should not die');
+is($completed, 1, 'newtest should complete');
+@sent = [];
+like $out, qr/Bananas are awesomes, and i have/, "Child output of test is there";
+
+$out = undef;
+loadtest 'bananas';
+autotest::run_all;
+($died, $completed) = get_tests_done;
+is($died,      0, 'newtest should not die');
+is($completed, 1, 'newtest should complete');
+@sent = [];
+like $out, qr/Bananas are awesomes, and i have/, "Child output of test is there";
+
+$out = undef;
+loadtest 'nestedparent';
+autotest::run_all;
+($died, $completed) = get_tests_done;
+is($died,      0, 'newtest should not die');
+is($completed, 1, 'newtest should complete');
+@sent = [];
+like $out, qr/We have a total of: 1 of deep and 1 fruit/,  "Child output of test is there" or explain $out;
+like $out, qr/Bananas are awesomes, and i have 4 of them/, "Child output of test is there" or explain $out;
 
 # now let's add a fatal test
 loadtest 'fatal';

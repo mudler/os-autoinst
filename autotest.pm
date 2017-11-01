@@ -26,6 +26,7 @@ use Socket;
 use IO::Handle;
 use POSIX '_exit';
 use cv;
+use osutils qw(get_class_name create_package);
 
 our %tests;        # scheduled or run tests
 our @testorder;    # for keeping them in order
@@ -34,6 +35,8 @@ our $isotovideo;
 sub loadtest {
     my ($script) = @_;
     my $casedir = $bmwqemu::vars{CASEDIR};
+    my $default_testdir = $bmwqemu::vars{TESTDIR} // 'tests';
+    my $testdir = join('/', $casedir, $default_testdir);
 
     unless (-f join('/', $casedir, $script)) {
         warn "loadtest needs a script below $casedir - $script is not\n";
@@ -46,20 +49,22 @@ sub loadtest {
     my $name     = $2;
     my $test;
     my $fullname = "$category-$name";
+
     # perl code generating perl code is overcool
     # FIXME turn this into a proper eval instead of a generated string
-    my $code = "package $name;";
-    $code .= "use lib '$casedir/lib';";
-    my $basename = dirname($script);
-    $code .= "use lib '$casedir/$basename';";
-    $code .= "require '$casedir/$script';";
-    eval $code;    ## no critic
+    local $@;
+    create_package($name, $casedir, $script);
+    # XXX: This is just ugly.. creating a package from a normal script.
     if ($@) {
         my $msg = "error on $script: $@";
         bmwqemu::diag($msg);
         die $msg;
     }
-    $test             = $name->new($category);
+
+    # Start to support this in legacy, when one day we will switch
+    $test = $name->new($category);
+    load_parents($test, $testdir) if $test->can('parent_test') && @{$test->parent_test} > 0;
+
     $test->{script}   = $script;
     $test->{fullname} = $fullname;
     my $nr = '';
@@ -108,6 +113,37 @@ sub load_snapshot {
     my ($sname) = @_;
     bmwqemu::diag("Loading a VM snapshot $sname");
     return query_isotovideo('backend_load_snapshot', {name => $sname});
+}
+
+sub load_parents {
+    my ($test, $dir) = @_;
+    my $child_test_name = get_class_name($test);
+    bmwqemu::diag("Loading parent tests for $child_test_name: @{[ @{$test->parent_test} ]}");
+    foreach my $parent (@{$test->parent_test}) {
+        local $@;
+        my @camel     = split(($parent =~ /\:\:/) ? '::' : '/', $parent);
+        my $name      = pop(@camel);
+        my $namespace = join('/', @camel);
+        my $camelized = join('::', @camel, $name);
+
+        my $rel = File::Spec->abs2rel(
+            $namespace ?
+              join("/", $namespace, "${name}.pm")
+            : ("${name}.pm"));
+        bmwqemu::diag("Loading -> $parent in $namespace ($child_test_name, $dir, $rel)");
+
+        create_package($camelized, $dir, $rel);
+        if ($@) {
+            my $msg = "error on $parent: $@";
+            bmwqemu::diag($msg);
+            die $msg;
+        }
+        {
+            no strict 'refs';    ## no critic
+            no warnings 'redefine';
+            push @{"${child_test_name}::ISA"}, $camelized;
+        }
+    }
 }
 
 sub run_all {

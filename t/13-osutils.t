@@ -185,7 +185,7 @@ subtest load_module => sub {
     is $obj->prepared, 1;
     is $obj->started,  1;
 
-    $obj = load_module {name => 'foo', args => [], phases => [qw(prepare start)] };
+    $obj = load_module {name => 'foo', args => [], phases => [qw(prepare start)]};
     is $obj->prepared, 1;
     is $obj->started,  1;
 };
@@ -193,7 +193,7 @@ subtest load_module => sub {
 subtest load_components => sub {
     use osutils 'load_components';
 
-    my ($errors, $loaded) = load_components {namespace => 'fuzz', component => 'barfuzz', phases => [], check_load =>0 };
+    my ($errors, $loaded) = load_components {namespace => 'fuzz', component => 'barfuzz', phases => [], check_load => 0};
     is @{$errors}, 0;
     is @{$loaded}, 1 or diag explain $loaded;
     is $_->{prepare}, undef for @{$loaded};
@@ -205,29 +205,30 @@ subtest load_components => sub {
     isa_ok $err, "Mojo::Exception";
 
     local $ENV{FOO_BAR_BAR} = 1;
-     $errors = [];
-     $loaded =[];
-    ($errors, $loaded) = load_components('load', '',[], 0, [qw(prepare)]);
-    is( @{$errors}, 1, '1 error should be there') or diag explain $errors;
-    is( @{$loaded}, 1, '1 module should be loaded') or diag explain $loaded;
+    $errors = [];
+    $loaded = [];
+    ($errors, $loaded) = load_components('load', '', [], 0, [qw(prepare)]);
+    is(@{$errors}, 1, '1 error should be there')   or diag explain $errors;
+    is(@{$loaded}, 1, '1 module should be loaded') or diag explain $loaded;
     is shift(@{$loaded})->prepared, 1;
 
     ($errors, $loaded) = load_components {
-      namespace => '',
-      component => 'foobar',
-      check_load => 0
+        namespace  => '',
+        component  => 'foobar',
+        check_load => 0
     };
-    is( @{$errors}, 0, 'No errors') or diag explain $errors;
-    is( @{$loaded}, 1, '1 module should be loaded') or diag explain $loaded;
+    is(@{$errors}, 0, 'No errors') or diag explain $errors;
+    is(@{$loaded}, 1, '1 module should be loaded') or diag explain $loaded;
+
     $errors = [];
-    $loaded =[];
+    $loaded = [];
     ($errors, $loaded) = load_components {
-      namespace => '',
-      component => 'foobar',
-      check_load => 1
+        namespace  => '',
+        component  => 'foobar',
+        check_load => 1
     };
-    is( @{$errors}, 0, 'No errors') or diag explain $errors;
-    is( @{$loaded}, 0, 'No module should be loaded') or diag explain $loaded;
+    is(@{$errors}, 0, 'No errors') or diag explain $errors;
+    is(@{$loaded}, 0, 'No module should be loaded') or diag explain $loaded;
 };
 
 done_testing();

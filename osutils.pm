@@ -22,6 +22,7 @@ use Carp;
 use base 'Exporter';
 use Mojo::File 'path';
 use Mojo::Loader qw(find_modules load_class);
+use File::Basename;
 
 our @EXPORT_OK = qw(
   dd_gen_params
@@ -33,14 +34,26 @@ our @EXPORT_OK = qw(
   get_class_name
   qv
   attempt
+  create_package
 );
+
+sub create_package {
+    my ($name, $dir, $script) = @_;
+    my $code = "package $name;";
+    $code .= "use lib '$dir/lib';";
+    my $basename = dirname($script);
+    $code .= "use lib '$dir/$basename';";
+    $code .= "use Mojo::Base 'basetest';";
+    $code .= "require '$dir/$script';";
+    eval $code;    ## no critic
+}
 
 sub get_class_name { (split(/=/, "$_[0]"))[0] }
 
 sub load_module {
     my ($module, $args, $phases) = ref $_[0] eq 'HASH' ? (@{$_[0]}{qw(name args phases)}) : @_;
     $phases ||= [];
-    $args ||= [];
+    $args   ||= [];
     my $loaded_module;
     eval { $loaded_module = $module->new(@$args); };
     return if $@;
@@ -50,9 +63,9 @@ sub load_module {
 }
 
 sub load_components {
-    my ($namespace, $component, $args,$check_load, $phases) = ref $_[0] eq 'HASH' ? (@{$_[0]}{qw(namespace component args check_load phases)}) : @_;
-    $phases ||= [];
-    $args ||= [];
+    my ($namespace, $component, $args, $check_load, $phases) = ref $_[0] eq 'HASH' ? (@{$_[0]}{qw(namespace component args check_load phases)}) : @_;
+    $phases     ||= [];
+    $args       ||= [];
     $check_load ||= 0;
 
     my (@errors, @loaded);

@@ -32,7 +32,7 @@ sub new {
     my ($class, $category) = @_;
 
     # Legacy support
-    my $self = $class->SUPER::new($class, @_);
+    my $self = $class->SUPER::new();
     $self->{dents} = 0;
     $self->class($class)       if $class;
     $self->category($category) if $category;
