@@ -21,14 +21,64 @@ use warnings;
 use Carp;
 use base 'Exporter';
 use Mojo::File 'path';
+use Mojo::Loader qw(find_modules load_class);
 
 our @EXPORT_OK = qw(
   dd_gen_params
   find_bin
   gen_params
+  looks_like_ip
+  load_module
+  load_components
+  get_class_name
   qv
   attempt
 );
+
+sub get_class_name { (split(/=/, "$_[0]"))[0] }
+
+sub load_module {
+    my ($module, $args, $phases) = ref $_[0] eq 'HASH' ? (@{$_[0]}{qw(name args phases)}) : @_;
+    $phases ||= [];
+    $args ||= [];
+    my $loaded_module;
+    eval { $loaded_module = $module->new(@$args); };
+    return if $@;
+    eval { $loaded_module->$_ } for grep { $loaded_module->can($_) } @$phases;
+
+    return $loaded_module;
+}
+
+sub load_components {
+    my ($namespace, $component, $args,$check_load, $phases) = ref $_[0] eq 'HASH' ? (@{$_[0]}{qw(namespace component args check_load phases)}) : @_;
+    $phases ||= [];
+    $args ||= [];
+    $check_load ||= 0;
+
+    my (@errors, @loaded);
+    for my $module (find_modules $namespace) {
+        next if $component && ($module !~ /$component/);
+        my $e = load_class $module;
+        if (ref $e) {
+            push(@errors, $e);
+            next;
+        }
+        next if $check_load && eval { !$module->new->load };
+
+        if (defined(my $loaded_module = load_module($module, $args, $phases))) {
+            push @loaded, $loaded_module;
+        }
+    }
+    return \@errors, \@loaded;
+}
+
+sub looks_like_ip {
+    my $part = qr/\d{1,2}|[01]\d{2}|2[0-4]\d|25[0-5]/;
+    if ($_[0] =~ /^($part\.){3}$part$/) {
+        return 1;
+    }
+    return 0;
+}
 
 # An helper to lookup into a folder and find an executable file between given candidates
 # First argument is the directory, the remainining are the candidates.

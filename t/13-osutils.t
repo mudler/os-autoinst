@@ -18,6 +18,8 @@
 use 5.018;
 use warnings;
 use Test::More;
+use FindBin;
+use lib "$FindBin::Bin/lib";
 
 BEGIN {
     unshift @INC, '..';
@@ -153,6 +155,79 @@ subtest attempt => sub {
     };
 
     is $var, 42;
+};
+
+subtest get_class_name => sub {
+    use osutils 'get_class_name';
+    use foo;
+    use foobar;
+    my $obj1 = foo->new;
+    my $obj2 = foobar->new;
+
+
+    is get_class_name("foo=HASH(0x27a3640)"),        "foo";
+    is get_class_name("dnsserver=HASH(0x1f8e1c8)"),  "dnsserver";
+    is get_class_name("proxy=HASH(0x3538eb0)"),      "proxy";
+    is get_class_name("foo::proxy=HASH(0x3538eb0)"), "foo::proxy";
+
+    is get_class_name($obj1), "foo";
+    is get_class_name($obj2), "foobar";
+};
+
+subtest load_module => sub {
+    use osutils 'load_module';
+
+    my $obj = load_module('foo', [], []);
+    is $obj->prepared, 0;
+    $obj = load_module('foo', [], [qw(prepare)]);
+    is $obj->prepared, 1;
+    $obj = load_module('foo', [], [qw(prepare start)]);
+    is $obj->prepared, 1;
+    is $obj->started,  1;
+
+    $obj = load_module {name => 'foo', args => [], phases => [qw(prepare start)] };
+    is $obj->prepared, 1;
+    is $obj->started,  1;
+};
+
+subtest load_components => sub {
+    use osutils 'load_components';
+
+    my ($errors, $loaded) = load_components {namespace => 'fuzz', component => 'barfuzz', phases => [], check_load =>0 };
+    is @{$errors}, 0;
+    is @{$loaded}, 1 or diag explain $loaded;
+    is $_->{prepare}, undef for @{$loaded};
+
+    ($errors, $loaded) = load_components('fuzz', '', [], 0, []);
+    is @{$errors}, 1;
+    is @{$loaded}, 1;
+    my $err = shift @{$errors};
+    isa_ok $err, "Mojo::Exception";
+
+    local $ENV{FOO_BAR_BAR} = 1;
+     $errors = [];
+     $loaded =[];
+    ($errors, $loaded) = load_components('load', '',[], 0, [qw(prepare)]);
+    is( @{$errors}, 1, '1 error should be there') or diag explain $errors;
+    is( @{$loaded}, 1, '1 module should be loaded') or diag explain $loaded;
+    is shift(@{$loaded})->prepared, 1;
+
+    ($errors, $loaded) = load_components {
+      namespace => '',
+      component => 'foobar',
+      check_load => 0
+    };
+    is( @{$errors}, 0, 'No errors') or diag explain $errors;
+    is( @{$loaded}, 1, '1 module should be loaded') or diag explain $loaded;
+    $errors = [];
+    $loaded =[];
+    ($errors, $loaded) = load_components {
+      namespace => '',
+      component => 'foobar',
+      check_load => 1
+    };
+    is( @{$errors}, 0, 'No errors') or diag explain $errors;
+    is( @{$loaded}, 0, 'No module should be loaded') or diag explain $loaded;
 };
 
 done_testing();
