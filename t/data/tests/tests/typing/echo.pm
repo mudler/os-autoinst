@@ -13,22 +13,19 @@
 # You should have received a copy of the GNU General Public License along
 # with this program; if not, see <http://www.gnu.org/licenses/>.
 
-use base 'basetest';
+use OpenQA::Test 'basetest';
 use strict;
 use testapi;
 
+has parent_test => sub { [qw(parent)] };
+
 sub run {
-
-    type_string("echo do not wait_still_screen\n", max_interval => 50, wait_still_screen => 0);
-    type_string("echo type string and wait for 5 seconds\n",               wait_still_screen => 5);
-    type_string("echo test\necho wait\necho 10se\n",                       max_interval      => 100, wait_screen_changes => 11, wait_still_screen => 10);
-    type_string("echo test if wait_screen_change functions as expected\n", max_interval      => 150, wait_screen_changes => 11, wait_still_screen => 10);
-    type_string("echo wait_still_screen for 20 seconds\n", max_interval => 200, wait_still_screen => 20);
-
-}
-
-sub test_flags {
-    return {};
+    my $self = shift;
+    $self->type("echo do not wait_still_screen\n", max_interval => 50, wait_still_screen => 0);
+    $self->type("echo type string and wait for 5 seconds\n",               wait_still_screen => 5);
+    $self->type("echo test\necho wait\necho 10se\n",                       max_interval      => 100, wait_screen_changes => 11, wait_still_screen => 10);
+    $self->type("echo test if wait_screen_change functions as expected\n", max_interval      => 150, wait_screen_changes => 11, wait_still_screen => 10);
+    $self->type("echo wait_still_screen for 20 seconds\n", max_interval => 200, wait_still_screen => 20);
 }
 
 1;
