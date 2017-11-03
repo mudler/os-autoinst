@@ -26,7 +26,7 @@ use POSIX;
 use testapi  ();
 use autotest ();
 use MIME::Base64 'decode_base64';
-use Mojo::Base 'OpenQA::Test';
+use OpenQA::Test -base;
 
 sub new {
     my ($class, $category) = @_;
@@ -40,6 +40,7 @@ sub new {
 
     $self;
 }
+
 
 =head1 Methods
 
