@@ -1,8 +1,8 @@
 use strict;
 use warnings;
-use base 'basetest';
+use OpenQA::Test 'basetest';
 
-has 'banana' => 1;
+has banana => 1;
 
 sub run {
     print "Bananas are awesomes, and i have " . shift->banana . " of them\n";

@@ -1,8 +1,8 @@
 use strict;
 use warnings;
-use base 'basetest';
+use OpenQA::Test 'basetest';
 
-has 'parent_test' => sub { [qw(bananas)] };
+has parent_test => sub { [qw(bananas)] };
 
 sub run {
     my $self = shift;

@@ -1,8 +1,8 @@
 use strict;
 use warnings;
-use base 'basetest';
+use OpenQA::Test 'basetest';
 
-has 'fruit' => 1;
+has fruit => 1;
 
 sub run { die "Not implemented in base class"; }
 
