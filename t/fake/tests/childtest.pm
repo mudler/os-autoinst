@@ -1,6 +1,6 @@
 use strict;
 use warnings;
-use OpenQA::Test 'basetest';
+use OpenQA::Test -base;
 
 has parent_test => sub { [qw(bananas)] };
 

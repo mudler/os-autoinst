@@ -88,7 +88,23 @@ is($completed, 1, 'start+next+start should complete');
 # which dies, as runtest does a whole bunch of stuff when the test
 # dies that we may not want to run into here
 #$mock_basetest->mock(runtest          => sub { die "oh noes!\n"; });
+my $mock_openqatest = new Test::MockModule('OpenQA::Test');
+
 $mock_basetest->mock(
+    runtest => sub {
+        my $self = shift;
+        my $name = ref($self);
+        eval {
+            open my $handle, '>', \$out;
+            local *STDERR = $handle;
+            local *STDOUT = $handle;
+            $self->pre_run_hook();
+            $self->run();
+            $self->post_run_hook();
+        };
+        $self->run_post_fail("test $name died") if $@;
+    });
+$mock_openqatest->mock(
     runtest => sub {
         my $self = shift;
         my $name = ref($self);
@@ -123,7 +139,7 @@ autotest::run_all;
 ($died, $completed) = get_tests_done;
 is($died,      0, 'newtest should not die');
 is($completed, 1, 'newtest should complete');
-like $out, qr/Child have (.*) Bananas/i, "Child output of test is there";
+like $out, qr/Child have (.*) Bananas/i, "Child output of test is there" or diag explain $out;
 @sent = [];
 
 $out = undef;
@@ -133,7 +149,7 @@ autotest::run_all;
 is($died,      0, 'newtest should not die');
 is($completed, 1, 'newtest should complete');
 @sent = [];
-like $out, qr/Apples are awesomes, and i have/, "Child output of test is there";
+like $out, qr/Apples are awesomes, and i have/, "Child output of test is there" or diag explain $out;
 
 $out = undef;
 loadtest 'doubleparenttestinverted';
@@ -142,7 +158,7 @@ autotest::run_all;
 is($died,      0, 'newtest should not die');
 is($completed, 1, 'newtest should complete');
 @sent = [];
-like $out, qr/Bananas are awesomes, and i have/, "Child output of test is there";
+like $out, qr/Bananas are awesomes, and i have/, "Child output of test is there" or diag explain $out;
 
 $out = undef;
 loadtest 'bananas';
@@ -151,7 +167,7 @@ autotest::run_all;
 is($died,      0, 'newtest should not die');
 is($completed, 1, 'newtest should complete');
 @sent = [];
-like $out, qr/Bananas are awesomes, and i have/, "Child output of test is there";
+like $out, qr/Bananas are awesomes, and i have/, "Child output of test is there" or diag explain $out;
 
 $out = undef;
 loadtest 'nestedparent';
@@ -160,8 +176,8 @@ autotest::run_all;
 is($died,      0, 'newtest should not die');
 is($completed, 1, 'newtest should complete');
 @sent = [];
-like $out, qr/We have a total of: 1 of deep and 1 fruit/,  "Child output of test is there" or explain $out;
-like $out, qr/Bananas are awesomes, and i have 4 of them/, "Child output of test is there" or explain $out;
+like $out, qr/We have a total of: 1 of deep and 1 fruit/, "Child output of test is there";
+like $out, qr/Bananas are awesomes, and i have 4 of them/, "Child output of test is there" or diag explain $out;
 
 # now let's add a fatal test
 loadtest 'fatal';
