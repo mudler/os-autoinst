@@ -62,7 +62,11 @@ sub loadtest {
     }
 
     # Start to support this in legacy, when one day we will switch
-    $test = $name->new($category);
+    $test = $name->new();
+    $test->category($category) if $category && $test->isa('OpenQA::Test');
+    $test->{category} = $category if $category;
+    $test->{class} = $name;
+
     load_parents($test, $testdir) if $test->can('parent_test') && @{$test->parent_test} > 0;
 
     $test->{script}   = $script;
@@ -142,6 +146,14 @@ sub load_parents {
             no strict 'refs';    ## no critic
             no warnings 'redefine';
             push @{"${child_test_name}::ISA"}, $camelized;
+            do {
+                next
+                  if not defined *{"${camelized}::$_"}{CODE}
+                  or $_ eq 'import'
+                  or defined *{"${child_test_name}::$_"}{CODE};
+                *{$child_test_name . "::$_"} = \&{"${camelized}::$_"};
+              }
+              for keys %{"${camelized}::"};
         }
     }
 }
