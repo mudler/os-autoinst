@@ -43,7 +43,6 @@ sub create_package {
     $code .= "use lib '$dir/lib';";
     my $basename = dirname($script);
     $code .= "use lib '$dir/$basename';";
-    $code .= "use Mojo::Base 'basetest';";
     $code .= "require '$dir/$script';";
     eval $code;    ## no critic
 }

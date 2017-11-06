@@ -26,21 +26,32 @@ use POSIX;
 use testapi  ();
 use autotest ();
 use MIME::Base64 'decode_base64';
-use OpenQA::Test -base;
+
+# enable strictures and warnings in all tests globaly
+sub import {
+    strict->import;
+    warnings->import;
+}
 
 sub new {
     my ($class, $category) = @_;
+    #  $category ||= 'unknown';
+    my $self = {class => $class};
+    $self->{lastscreenshot} = undef;
+    $self->{details}        = [];
+    $self->{result}         = undef;
+    $self->{running}        = 0;
+    #  $self->{category}               = $category;
+    $self->{test_count}             = 0;
+    $self->{screen_count}           = 0;
+    $self->{wav_fn}                 = undef;
+    $self->{dents}                  = 0;
+    $self->{post_fail_hook_running} = 0;
+    $self->{timeoutcounter}         = 0;
+    $self->{activated_consoles}     = [];
 
-    # Legacy support
-    my $self = $class->SUPER::new();
-    $self->{dents} = 0;
-    $self->class($class)       if $class;
-    $self->category($category) if $category;
-    $self->category('unknown') unless $self->category();
-
-    $self;
+    return bless $self, $class;
 }
-
 
 =head1 Methods
 
@@ -224,7 +235,12 @@ sub record_screenfail {
 sub remove_last_result {
     my $self = shift;
     --$self->{test_count};
-    return pop @{$self->details};
+    return pop @{$self->{details}};
+}
+
+sub details {
+    my ($self) = @_;
+    return $self->{details};
 }
 
 sub result {
