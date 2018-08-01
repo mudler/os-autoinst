@@ -59,9 +59,11 @@ sub new {
 }
 
 sub start {
-    my ($self)          = @_;
-    my $stdout          = *STDOUT;
-    my $stderr          = *STDERR;
+    my ($self) = @_;
+
+    open(my $STDOUTPARENT, '>&', *STDOUT);
+    open(my $STDERRPARENT, '>&', *STDERR);
+
     my $backend_process = process(sub {
             my $process = shift;
             $SIG{TERM} = 'DEFAULT';
@@ -70,9 +72,8 @@ sub start {
             #  $SIG{CHLD} = 'DEFAULT';
             $0 = "$0: backend";
 
-            open STDOUT, ">&", $stdout;
-            open STDERR, ">&", $stderr;
-
+            open STDOUT, ">&", $STDOUTPARENT;
+            open STDERR, ">&", $STDERRPARENT;
             # now initialize opencv
             require cv;
 
