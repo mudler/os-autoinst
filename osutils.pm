@@ -23,8 +23,6 @@ use base 'Exporter';
 use Mojo::File 'path';
 use bmwqemu 'diag';
 use POSIX ':sys_wait_h';
-use Symbol 'gensym';
-use IPC::Open3;
 use IO::Select;
 use Mojo::IOLoop::ReadWriteProcess 'process';
 
