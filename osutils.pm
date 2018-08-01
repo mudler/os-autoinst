@@ -110,9 +110,8 @@ sub runcmd {
 sub runcmd_output {
     diag "running " . join(' ', @_);
     my @args = @_;
-
     my $out;
-    my $p = process(sub { exec(@args) })->separate_err(0)->start;
+    my $p = process(sub { exec(@args) })->separate_err(1)->start;
     while (defined(my $line = $p->getline)) {
         $out .= $line;
     }

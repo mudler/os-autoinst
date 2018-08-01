@@ -357,7 +357,7 @@ sub exec_qemu {
 
     session->enable_subreaper;
     $self->_process->code(sub {
-
+            $SIG{__DIE__} = undef;    # overwrite the default - just exit
             system $self->qemu_bin, '-version';
             bmwqemu::diag("starting: " . join(" ", @params));
             # don't try to talk to the host's PA
