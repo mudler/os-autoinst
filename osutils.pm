@@ -92,7 +92,7 @@ sub quote {
     "\'" . $_[0] . "\'";
 }
 
-sub _st { my $st = shift >> 8; return ($st & 0x80) ? -(0x100 - ($st & 0xFF)) : $st}
+sub _st { my $st = shift >> 8; return ($st & 0x80) ? -(0x100 - ($st & 0xFF)) : $st }
 sub _run {
     diag "running " . join(' ', @_);
     my @args = @_;
