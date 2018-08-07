@@ -91,16 +91,15 @@ sub quote {
     "\'" . $_[0] . "\'";
 }
 
-# PPC64
-sub _st { my $st = shift >> 8; return ($st & 0x80) ? (0x100 - ($st & 0xFF)) : $st }
+
 sub _run {
     diag "running " . join(' ', @_);
     my @args = @_;
     my $out;
     my $buffer;
     open my $handle, '>', \$buffer;
-    my $p = process(sub { my $p = shift; close($p->channel_in); close($p->channel_out); local *STDERR = $handle; exec(@args) });
-    $p->internal_pipes(0)->separate_err(0)->start;
+    my $p = process(sub { my $p = shift; local *STDERR = $handle; exec(@args) });
+    $p->channels(0)->quirkiness(1)->internal_pipes(0)->separate_err(0)->start;
     $p->on(stop => sub {
             while (defined(my $line = $p->getline)) {
                 $out .= $line;
@@ -110,7 +109,7 @@ sub _run {
     $p->wait_stop;
     close($p->$_ ? $p->$_ : ()) for qw(read_stream write_stream error_stream);
 
-    return _st($p->_status), $out;
+    return $p->exit_status, $out;
 }
 
 # Do not check for anything - just execute and print
