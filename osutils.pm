@@ -99,7 +99,8 @@ sub _run {
     my $out;
     my $buffer;
     open my $handle, '>', \$buffer;
-    my $p = process(sub { local *STDERR = $handle; exec(@args) })->separate_err($e)->start;
+    my $p = process(sub { local *STDERR = $handle; exec(@args) });
+    $p->internal_pipes(0)->separate_err($e)->start;
     $p->on(stop => sub {
             while (defined(my $line = $p->getline)) {
                 $out .= $line;
