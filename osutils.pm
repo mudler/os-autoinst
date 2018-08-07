@@ -33,7 +33,6 @@ our @EXPORT_OK = qw(
   qv
   quote
   runcmd
-  runcmd_output
   simple_run
   attempt
 );
@@ -114,7 +113,7 @@ sub _run {
 }
 
 # Do not check for anything - just execute and print
-sub simple_run { diag((_run(@_))[1]) }
+sub simple_run { my $o = (_run(@_))[1]; diag($o); $o }
 
 # Open a process to run external program and check its return status
 sub runcmd {
@@ -124,13 +123,6 @@ sub runcmd {
     return $e;
 }
 
-# Check for exit status and return the output
-sub runcmd_output {
-    my ($e, $out) = _run(@_);
-    diag $out if $out && length($out) > 0;
-    die join(" ", RUNCMD_FAILURE_MESS, $e) unless $e == 0;
-    return $out;
-}
 ## use critic
 
 sub attempt {
