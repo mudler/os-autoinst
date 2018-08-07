@@ -97,15 +97,12 @@ sub _run {
     diag "running " . join(' ', @_);
     my @args = @_;
     my $out;
-    my $buffer;
-    open my $handle, '>', \$buffer;
     my $p = process(execute => shift @args)->args(\@args);
-    $p->internal_pipes(0)->separate_err(0)->start;
+    $p->separate_err(0)->start;
     $p->on(stop => sub {
             while (defined(my $line = $p->getline)) {
                 $out .= $line;
             }
-            diag $buffer if defined $buffer && length($buffer) > 0;
     });
     $p->wait_stop;
     close($p->$_ ? $p->$_ : ()) for qw(read_stream write_stream error_stream);
