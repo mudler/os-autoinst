@@ -92,6 +92,7 @@ sub quote {
     "\'" . $_[0] . "\'";
 }
 
+sub _st { my $st = shift >> 8; return ($st & 0x80) ? -(0x100 - ($st & 0xFF)) : $st}
 sub _run {
     diag "running " . join(' ', @_);
     my @args = @_;
@@ -109,7 +110,7 @@ sub _run {
     $p->wait_stop;
     close($p->$_ ? $p->$_ : ()) for qw(read_stream write_stream error_stream);
 
-    return $p->exit_status, $out;
+    return _st($p->_status), $out;
 }
 
 # Do not check for anything - just execute and print
